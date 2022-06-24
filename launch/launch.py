@@ -23,22 +23,22 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    param_path = os.path.join(get_package_share_directory('athena_tracking'), 'config')
+  param_path = os.path.join(get_package_share_directory('cyberdog_tracking'), 'config')
 
-    namespace = LaunchConfiguration('namespace', default='')
-    return LaunchDescription([
-        Node(
-            package='athena_tracking',
-            executable='tracking',
-            namespace=namespace,
-            name='tracking',
-            parameters=[{'logger_level': 20,
-                         'stereo_mode': False,
-                         'remap_rows_scale': 0.5,
-                         'remap_cols_scale': 1.0,
-                         'camera_ai_param': param_path}],
-            remappings=None,
-            arguments=None,
-            output='screen',
-        )
-    ])
+  namespace = LaunchConfiguration('namespace', default='')
+  return LaunchDescription([
+    Node(
+        package='cyberdog_tracking',
+        executable='cyberdog_tracking',
+        namespace=namespace,
+        name='tracking',
+        parameters=[{'logger_level': 0,
+                     'stereo_mode': False,
+                     'remap_rows_scale': 0.5,
+                     'remap_cols_scale': 1.0,
+                     'camera_ai_param': param_path}],
+        remappings=None,
+        arguments=None,
+        output='screen',
+    )
+  ])

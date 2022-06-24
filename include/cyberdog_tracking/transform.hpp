@@ -72,21 +72,21 @@ private:
   // Get camera Intrisic(K, D, xi, imageSize)
   // Camera model : omnidirect model
   void LoadIntrinsic(
-    const std::string & file_name, cv::Mat & K, cv::Mat & D, cv::Mat & Xi,
+    const std::string & file_name, cv::Mat & intrinsics, cv::Mat & distortion, cv::Mat & intrinsics_xi,
     cv::Size & img_size);
 
   // Get camera extrinsic(rotation, translation)
   void LoadExtrinsic(const std::string & file_name, cv::Mat & rot, cv::Mat & trans);
 
 private:
-  cv::Mat aiT_;
-  cv::Mat aiR_;
-  cv::Mat aiD_;
-  cv::Mat aiK_;
-  cv::Mat aiXi_;
+  cv::Mat color2ai_r_;
+  cv::Mat color2ai_t_;
+  cv::Mat distortion_ai_;
+  cv::Mat intrinsics_ai_;
+  cv::Mat intrinsics_xi_;
 
-  cv::Mat laiT_;
-  cv::Mat laiR_;
+  cv::Mat left2ai_t_;
+  cv::Mat left2ai_r_;
 
   cv::Mat depth2color_r_;
   cv::Mat depth2color_t_;

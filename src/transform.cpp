@@ -24,29 +24,35 @@ Transform::Transform(
   const std::string & file_path, const cv::Mat & rot, const cv::Mat & trans,
   bool stereo_mode)
 {
-  try {
-    if (rot.empty() || trans.empty()) {
-      std::cout << "Get extrinsics param fail, using default param. " << std::endl;
-      depth2color_r_ =
-        (cv::Mat_<double>(3, 3) << 0.9999962449073792, 0.0003213161835446954,
-        -0.0027217825409024954, -0.0003334041975904256, 0.9999901056289673, -0.0044419169425964355,
-        0.0027203282807022333, 0.004442807752639055, 0.9999864101409912);
-      depth2color_t_ =
-        (cv::Mat_<double>(3, 1) << -0.059059660881757736, 4.421528137754649e-05,
-        6.807535100961104e-05);
-    } else {
-      depth2color_r_ = rot;
-      depth2color_t_ = trans;
-    }
-  } catch (...) {
-    depth2color_r_ =
-      (cv::Mat_<double>(3, 3) << 0.9999962449073792, 0.0003213161835446954,
-      -0.0027217825409024954, -0.0003334041975904256, 0.9999901056289673, -0.0044419169425964355,
-      0.0027203282807022333, 0.004442807752639055, 0.9999864101409912);
-    depth2color_t_ =
-      (cv::Mat_<double>(3, 1) << -0.059059660881757736, 4.421528137754649e-05,
-      6.807535100961104e-05);
-  }
+  // try {
+  //   if (rot.empty() || trans.empty()) {
+  //     std::cout << "Get extrinsics param fail, using default param. " << std::endl;
+  //     depth2color_r_ =
+  //       (cv::Mat_<double>(3, 3) << 0.9999962449073792, 0.0003213161835446954,
+  //       -0.0027217825409024954, -0.0003334041975904256, 0.9999901056289673, -0.0044419169425964355,
+  //       0.0027203282807022333, 0.004442807752639055, 0.9999864101409912);
+  //     depth2color_t_ =
+  //       (cv::Mat_<double>(3, 1) << -0.059059660881757736, 4.421528137754649e-05,
+  //       6.807535100961104e-05);
+  //   } else {
+  //     depth2color_r_ = rot;
+  //     depth2color_t_ = trans;
+  //   }
+  // } catch (...) {
+  //   depth2color_r_ =
+  //     (cv::Mat_<double>(3, 3) << 0.9999962449073792, 0.0003213161835446954,
+  //     -0.0027217825409024954, -0.0003334041975904256, 0.9999901056289673, -0.0044419169425964355,
+  //     0.0027203282807022333, 0.004442807752639055, 0.9999864101409912);
+  //   depth2color_t_ =
+  //     (cv::Mat_<double>(3, 1) << -0.059059660881757736, 4.421528137754649e-05,
+  //     6.807535100961104e-05);
+  // }
+  depth2color_r_ =
+    (cv::Mat_<double>(3, 3) << 0.9998643294370005429883, -0.01564580708279019252704, -0.005150867909859900908853,
+      0.01565067708334915569379, 0.9998771097100905835831, 0.000906523373870682250622,
+      0.005136051628385554512768, -0.0009870149556903801656149, 0.9999863232940473523058);
+  depth2color_t_ =
+    (cv::Mat_<double>(3, 1) << -0.02508378263540950864341, 0.01051678840365229301856, -5.676821120938141472089e-05);
 
   stereo_mode_ = stereo_mode;
   LoadParameters(file_path);
@@ -75,6 +81,11 @@ cv::Mat Transform::RealsenseDepthToAi(
   fy_ = camera_info.p[5];
   cx_ = camera_info.p[2];
   cy_ = camera_info.p[6];
+  // hardcode realsense left interinsics param
+  fx_ = 389.08851991207564;
+  fy_ = 389.11726049919525;
+  cx_ = 320.5093417015909;
+  cy_ = 234.36863244363235;
 
   cv::Mat ai_depth(ai_img_size_, CV_64FC1, cv::Scalar(0));
   int depth_rows = depth_image.rows * rows_scale;
@@ -175,29 +186,29 @@ void Transform::DepthToAi(cv::Mat & ai_depth, double depth, int r, int c)
     P_z0 * depth2color_r_.at<double>(2, 2) +
     depth2color_t_.at<double>(2, 0);
 
-  double P_x2 = P_x1 * aiR_.at<double>(0, 0) +
-    P_y1 * aiR_.at<double>(0, 1) +
-    P_z1 * aiR_.at<double>(0, 2) +
-    aiT_.at<double>(0, 0);
+  double P_x2 = P_x1 * color2ai_r_.at<double>(0, 0) +
+    P_y1 * color2ai_r_.at<double>(0, 1) +
+    P_z1 * color2ai_r_.at<double>(0, 2) +
+    color2ai_t_.at<double>(0, 0);
 
-  double P_y2 = P_x1 * aiR_.at<double>(1, 0) +
-    P_y1 * aiR_.at<double>(1, 1) +
-    P_z1 * aiR_.at<double>(1, 2) +
-    aiT_.at<double>(1, 0);
+  double P_y2 = P_x1 * color2ai_r_.at<double>(1, 0) +
+    P_y1 * color2ai_r_.at<double>(1, 1) +
+    P_z1 * color2ai_r_.at<double>(1, 2) +
+    color2ai_t_.at<double>(1, 0);
 
-  double P_z2 = P_x1 * aiR_.at<double>(2, 0) +
-    P_y1 * aiR_.at<double>(2, 1) +
-    P_z1 * aiR_.at<double>(2, 2) +
-    aiT_.at<double>(2, 0);
+  double P_z2 = P_x1 * color2ai_r_.at<double>(2, 0) +
+    P_y1 * color2ai_r_.at<double>(2, 1) +
+    P_z1 * color2ai_r_.at<double>(2, 2) +
+    color2ai_t_.at<double>(2, 0);
 
   double P_norm = std::sqrt(P_x2 * P_x2 + P_y2 * P_y2 + P_z2 * P_z2);
-  double z = P_z2 + aiXi_.at<double>(0, 0) * P_norm;
+  double z = P_z2 + intrinsics_xi_.at<double>(0, 0) * P_norm;
   double p_x = P_x2 / z;
   double p_y = P_y2 / z;
 
   // Apply generalised projection matrix
-  double p_u = aiK_.at<double>(0, 0) * p_x + aiK_.at<double>(0, 2);
-  double p_v = aiK_.at<double>(1, 1) * p_y + aiK_.at<double>(1, 2);
+  double p_u = intrinsics_ai_.at<double>(0, 0) * p_x + intrinsics_ai_.at<double>(0, 2);
+  double p_v = intrinsics_ai_.at<double>(1, 1) * p_y + intrinsics_ai_.at<double>(1, 2);
 
   cv::Point point = cv::Point2d(static_cast<int>(p_u), static_cast<int>(p_v));
   if (point.x > 0 && point.x < ai_depth.cols && point.y > 0 && point.y < ai_depth.rows) {
@@ -214,29 +225,29 @@ void Transform::StereoDepthToAi(cv::Mat & ai_depth, double depth, int r, int c)
   double P_y0 = f * depth;
   double P_z0 = depth;
 
-  double P_x1 = P_x0 * laiR_.at<double>(0, 0) +
-    P_y0 * laiR_.at<double>(0, 1) +
-    P_z0 * laiR_.at<double>(0, 2) +
-    laiT_.at<double>(0, 0);
+  double P_x1 = P_x0 * left2ai_r_.at<double>(0, 0) +
+    P_y0 * left2ai_r_.at<double>(0, 1) +
+    P_z0 * left2ai_r_.at<double>(0, 2) +
+    left2ai_t_.at<double>(0, 0);
 
-  double P_y1 = P_x0 * laiR_.at<double>(1, 0) +
-    P_y0 * laiR_.at<double>(1, 1) +
-    P_z0 * laiR_.at<double>(1, 2) +
-    laiT_.at<double>(1, 0);
+  double P_y1 = P_x0 * left2ai_r_.at<double>(1, 0) +
+    P_y0 * left2ai_r_.at<double>(1, 1) +
+    P_z0 * left2ai_r_.at<double>(1, 2) +
+    left2ai_t_.at<double>(1, 0);
 
-  double P_z1 = P_x0 * laiR_.at<double>(2, 0) +
-    P_y0 * laiR_.at<double>(2, 1) +
-    P_z0 * laiR_.at<double>(2, 2) +
-    laiT_.at<double>(2, 0);
+  double P_z1 = P_x0 * left2ai_r_.at<double>(2, 0) +
+    P_y0 * left2ai_r_.at<double>(2, 1) +
+    P_z0 * left2ai_r_.at<double>(2, 2) +
+    left2ai_t_.at<double>(2, 0);
 
   double P_norm = std::sqrt(P_x1 * P_x1 + P_y1 * P_y1 + P_z1 * P_z1);
-  double z = P_z1 + aiXi_.at<double>(0, 0) * P_norm;
+  double z = P_z1 + intrinsics_xi_.at<double>(0, 0) * P_norm;
   double p_x = P_x1 / z;
   double p_y = P_y1 / z;
 
   // Apply generalised projection matrix
-  double p_u = aiK_.at<double>(0, 0) * p_x + aiK_.at<double>(0, 2);
-  double p_v = aiK_.at<double>(1, 1) * p_y + aiK_.at<double>(1, 2);
+  double p_u = intrinsics_ai_.at<double>(0, 0) * p_x + intrinsics_ai_.at<double>(0, 2);
+  double p_v = intrinsics_ai_.at<double>(1, 1) * p_y + intrinsics_ai_.at<double>(1, 2);
 
   cv::Point point = cv::Point2d(static_cast<int>(p_u), static_cast<int>(p_v));
   if (point.x > 0 && point.x < ai_depth.cols && point.y > 0 && point.y < ai_depth.rows) {
@@ -253,25 +264,25 @@ void Transform::LoadParameters(const std::string & file_path)
   // AI intrinsic extrinsic(AI->left)
   if ((!AI_file.empty()) && (!AI_extrinsic.empty()) && (!LeftAI_extrinsic.empty())) {
     cv::Size img_size;
-    LoadIntrinsic(AI_file, aiK_, aiD_, aiXi_, img_size);
+    LoadIntrinsic(AI_file, intrinsics_ai_, distortion_ai_, intrinsics_xi_, img_size);
     ai_img_size_ = img_size;
 
     cv::Mat rc, tc;
     LoadExtrinsic(AI_extrinsic, rc, tc);
-    rc.copyTo(aiR_);
-    tc.copyTo(aiT_);
+    rc.copyTo(color2ai_r_);
+    tc.copyTo(color2ai_t_);
 
     cv::Mat rl, tl;
     LoadExtrinsic(LeftAI_extrinsic, rl, tl);
-    rl.copyTo(laiR_);
-    tl.copyTo(laiT_);
+    rl.copyTo(left2ai_r_);
+    tl.copyTo(left2ai_t_);
   } else {
     std::cout << "AI params is null , can not use AI function!" << std::endl;
   }
 }
 
 void Transform::LoadIntrinsic(
-  const std::string & file_name, cv::Mat & K, cv::Mat & D, cv::Mat & Xi,
+  const std::string & file_name, cv::Mat &intrinsics , cv::Mat & distortion, cv::Mat & intrinsics_xi,
   cv::Size & img_size)
 {
   cv::FileStorage fs(file_name, cv::FileStorage::READ);
@@ -296,19 +307,19 @@ void Transform::LoadIntrinsic(
   double gamma2 = static_cast<double>(n2["gamma2"]);
   double u0 = static_cast<double>(n2["u0"]);
   double v0 = static_cast<double>(n2["v0"]);
-  cv::Mat kMat = cv::Mat::zeros(3, 3, CV_64F);
-  kMat.at<double>(0, 0) = gamma1;
-  kMat.at<double>(0, 2) = u0;
-  kMat.at<double>(1, 1) = gamma2;
-  kMat.at<double>(1, 2) = v0;
-  kMat.at<double>(2, 2) = 1;
-  cv::Mat dMat = (cv::Mat_<double>(4, 1) << k1, k2, p1, p2);
-  cv::Mat xiMat = (cv::Mat_<double>(1, 1) << xi);
+  cv::Mat intrin_mat = cv::Mat::zeros(3, 3, CV_64F);
+  intrin_mat.at<double>(0, 0) = gamma1;
+  intrin_mat.at<double>(0, 2) = u0;
+  intrin_mat.at<double>(1, 1) = gamma2;
+  intrin_mat.at<double>(1, 2) = v0;
+  intrin_mat.at<double>(2, 2) = 1;
+  cv::Mat distor_mat = (cv::Mat_<double>(4, 1) << k1, k2, p1, p2);
+  cv::Mat intrin_xi = (cv::Mat_<double>(1, 1) << xi);
   img_size = cv::Size(width, height);
-  kMat.copyTo(K);
-  dMat.copyTo(D);
-  xiMat.copyTo(Xi);
-  kMat.copyTo(ai_camera_param_);
+  intrin_mat.copyTo(intrinsics);
+  distor_mat.copyTo(distortion);
+  intrin_xi.copyTo(intrinsics_xi);
+  intrin_mat.copyTo(ai_camera_param_);
 }
 
 void Transform::LoadExtrinsic(const std::string & file_name, cv::Mat & rot, cv::Mat & trans)

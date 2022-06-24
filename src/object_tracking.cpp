@@ -178,10 +178,10 @@ void ObjectTracking::CreateSrv()
   reid_client_ = create_client<CameraService>("camera_service");
 
   // Service server to start tracking
-  tracking_service_ = create_service<BodyRegion>(
-    "tracking_object", std::bind(
-      &ObjectTracking::TrackingCallback, this,
-      std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+  // tracking_service_ = create_service<BodyRegion>(
+  //   "tracking_object", std::bind(
+  //     &ObjectTracking::TrackingCallback, this,
+  //     std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
   mode_service_ = create_service<NavMode>(
     "tracking_mode", std::bind(
       &ObjectTracking::ModeCallback, this,
@@ -196,7 +196,7 @@ void ObjectTracking::ProcessDepth(
     return;
   }
 
-  RCLCPP_DEBUG(
+  RCLCPP_INFO(
     logger, "Received depth image, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
 
@@ -224,6 +224,11 @@ void ObjectTracking::ProcessInfo(
 
 int findNearest(const std::vector<StampedImage> & vecImg, const std_msgs::msg::Header & header)
 {
+  std::cout << "tofind stamp: " << header.stamp.sec << ", " << header.stamp.nanosec << std::endl;
+  std::cout << "depth img stamp: " << std::endl;
+  for (auto &img : vecImg) {
+    std::cout << img.header.stamp.sec << ", " << img.header.stamp.nanosec << std::endl;
+  }
   int position = -1;
   float minInterval = 0.1;
   for (size_t i = 0; i < vecImg.size(); ++i) {
@@ -235,6 +240,7 @@ int findNearest(const std::vector<StampedImage> & vecImg, const std_msgs::msg::H
       minInterval = interval;
       position = i;
     }
+    std::cout << "interval: " << interval << std::endl;
   }
   return position;
 }
@@ -552,6 +558,10 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       RCLCPP_INFO(this->get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
       ai_depth = trans_ptr_->DepthToAi(depth_image, camera_info_, row_scale_, col_scale_);
+      // imshow
+      // cv::imshow("depth", ai_depth);
+      // cv::waitKey(10);
+
       double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
       RCLCPP_DEBUG(this->get_logger(), "Cloud handler cost: %f ms", time * 1000);
     } else {
@@ -561,6 +571,7 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
 
     // Get person pose and publish
     float distance = GetDistance(ai_depth, tracked.bbox);
+    std::cout << "dis: " << distance << std::endl;
     geometry_msgs::msg::PoseStamped pose;
     pose.header = posePub.header;
     pose.pose.position = toPosition(distance, cameraParam, bodyCenter);
