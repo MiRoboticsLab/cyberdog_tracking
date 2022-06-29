@@ -48,11 +48,13 @@ Transform::Transform(
   //     6.807535100961104e-05);
   // }
   depth2color_r_ =
-    (cv::Mat_<double>(3, 3) << 0.9998643294370005429883, -0.01564580708279019252704, -0.005150867909859900908853,
-      0.01565067708334915569379, 0.9998771097100905835831, 0.000906523373870682250622,
-      0.005136051628385554512768, -0.0009870149556903801656149, 0.9999863232940473523058);
+    (cv::Mat_<double>(3, 3) << 0.9998643294370005429883, -0.01564580708279019252704,
+    -0.005150867909859900908853,
+    0.01565067708334915569379, 0.9998771097100905835831, 0.000906523373870682250622,
+    0.005136051628385554512768, -0.0009870149556903801656149, 0.9999863232940473523058);
   depth2color_t_ =
-    (cv::Mat_<double>(3, 1) << -0.02508378263540950864341, 0.01051678840365229301856, -5.676821120938141472089e-05);
+    (cv::Mat_<double>(3, 1) << -0.02508378263540950864341, 0.01051678840365229301856,
+    -5.676821120938141472089e-05);
 
   stereo_mode_ = stereo_mode;
   LoadParameters(file_path);
@@ -282,7 +284,8 @@ void Transform::LoadParameters(const std::string & file_path)
 }
 
 void Transform::LoadIntrinsic(
-  const std::string & file_name, cv::Mat &intrinsics , cv::Mat & distortion, cv::Mat & intrinsics_xi,
+  const std::string & file_name, cv::Mat & intrinsics, cv::Mat & distortion,
+  cv::Mat & intrinsics_xi,
   cv::Size & img_size)
 {
   cv::FileStorage fs(file_name, cv::FileStorage::READ);

@@ -38,34 +38,10 @@ namespace cyberdog_tracking
 ObjectTracking::ObjectTracking()
 : Node("object_tracking"),
   trans_ptr_(nullptr), filter_ptr_(nullptr),
-  uncorrect_count_(0), unmatch_count_(0),
-  tracking_(false), deactivate_(false),
-  face_mode_(false), curr_status_(100)
+  uncorrect_count_(0), unfound_count_(0)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
   Initialize();
-
-  // Activate body detection
-  if (!CallService(body_client_, 0, "body-interval=2")) {
-    RCLCPP_ERROR(this->get_logger(), "Activate body detection fail. ");
-  }
-  deactivate_ = false;
-}
-
-int ObjectTracking::SuspendTracking()
-{
-  // Deativate body detection and face recognition
-  if (!CallService(body_client_, 0, "body-interval=0")) {
-    RCLCPP_ERROR(this->get_logger(), "Deactivate body detection fail. ");
-    return -1;
-  }
-  if (!CallService(face_client_, 0, "face-interval=0")) {
-    RCLCPP_ERROR(this->get_logger(), "Deactivate face recognition fail. ");
-    return -1;
-  }
-  tracking_ = false;
-  deactivate_ = true;
-  return 0;
 }
 
 void ObjectTracking::Initialize()
@@ -73,7 +49,6 @@ void ObjectTracking::Initialize()
   CreateObject();
   CreateSub();
   CreatePub();
-  CreateSrv();
 
   // Create process thread
   handler_thread_ = std::make_shared<std::thread>(&ObjectTracking::HandlerThread, this);
@@ -130,13 +105,6 @@ void ObjectTracking::CreateSub()
   RCLCPP_INFO(this->get_logger(), "Subscribing to body detection topic. ");
   body_sub_ = create_subscription<BodyInfo>("body", sub_qos, body_callback);
 
-  // Subscribe face detection topic to process
-  auto face_callback = [this](const FaceInfo::SharedPtr msg) {
-      ProcessFace(msg, this->get_logger());
-    };
-  RCLCPP_INFO(this->get_logger(), "Subscribing to face recognition topic. ");
-  face_sub_ = create_subscription<FaceInfo>("face", sub_qos, face_callback);
-
   // Subscribe depth image to process
   rclcpp::SensorDataQoS depth_qos;
   depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
@@ -166,36 +134,13 @@ void ObjectTracking::CreatePub()
   rclcpp::ServicesQoS pub_qos;
   pub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("tracking_pose", pub_qos);
-  rect_pub_ = create_publisher<BodyInfo>("tracking_result", pub_qos);
   status_pub_ = create_publisher<TrackingStatus>("tracking_status", pub_qos);
-}
-
-void ObjectTracking::CreateSrv()
-{
-  // Service client
-  body_client_ = create_client<CameraService>("camera_service");
-  face_client_ = create_client<CameraService>("camera_service");
-  reid_client_ = create_client<CameraService>("camera_service");
-
-  // Service server to start tracking
-  // tracking_service_ = create_service<BodyRegion>(
-  //   "tracking_object", std::bind(
-  //     &ObjectTracking::TrackingCallback, this,
-  //     std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-  mode_service_ = create_service<NavMode>(
-    "tracking_mode", std::bind(
-      &ObjectTracking::ModeCallback, this,
-      std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 }
 
 void ObjectTracking::ProcessDepth(
   const sensor_msgs::msg::Image::SharedPtr msg,
   rclcpp::Logger logger)
 {
-  if (deactivate_) {
-    return;
-  }
-
   RCLCPP_INFO(
     logger, "Received depth image, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
@@ -215,7 +160,7 @@ void ObjectTracking::ProcessInfo(
   const sensor_msgs::msg::CameraInfo::SharedPtr msg,
   rclcpp::Logger logger)
 {
-  RCLCPP_DEBUG(
+  RCLCPP_INFO(
     logger, "Received depth camera info msg, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
   camera_info_ = *msg;
@@ -226,7 +171,7 @@ int findNearest(const std::vector<StampedImage> & vecImg, const std_msgs::msg::H
 {
   std::cout << "tofind stamp: " << header.stamp.sec << ", " << header.stamp.nanosec << std::endl;
   std::cout << "depth img stamp: " << std::endl;
-  for (auto &img : vecImg) {
+  for (auto & img : vecImg) {
     std::cout << img.header.stamp.sec << ", " << img.header.stamp.nanosec << std::endl;
   }
   int position = -1;
@@ -263,16 +208,11 @@ sensor_msgs::msg::RegionOfInterest toROS(const cv::Rect & rect)
 
 void ObjectTracking::ProcessBody(const BodyInfo::SharedPtr msg, rclcpp::Logger logger)
 {
-  if (deactivate_) {
-    return;
-  }
-
   RCLCPP_DEBUG(
     logger, "Received detection result, ts %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
   RCLCPP_DEBUG(logger, "Received body num %d", msg->count);
 
-  bool bTracked = false;
   StampedBbox tracked;
   std::vector<PersonInfo> bboxDet;
   for (size_t i = 0; i < msg->count; ++i) {
@@ -280,8 +220,6 @@ void ObjectTracking::ProcessBody(const BodyInfo::SharedPtr msg, rclcpp::Logger l
     PersonInfo info(bbox, msg->infos[i].reid);
     bboxDet.push_back(info);
     if (!msg->infos[i].reid.empty()) {
-      unmatch_count_ = 0;
-      bTracked = true;
       tracked.vecInfo.push_back(info);
       tracked.header = msg->header;
       std::unique_lock<std::mutex> lk(handler_.mtx);
@@ -290,179 +228,6 @@ void ObjectTracking::ProcessBody(const BodyInfo::SharedPtr msg, rclcpp::Logger l
       RCLCPP_INFO(this->get_logger(), "Tracking completed, activate cloud handler to cal pose. ");
       handler_.cond.notify_one();
     }
-  }
-
-  if (tracking_ && !bTracked) {
-    unmatch_count_++;
-    RCLCPP_INFO(this->get_logger(), "Unmatch count : %d", unmatch_count_);
-    if (unmatch_count_ > 30) {
-      if (unmatch_count_ < 300) {
-        RCLCPP_INFO(this->get_logger(), "Status OBJECT_INVISIBLE.");
-        PubStatus(protocol::msg::TrackingStatus::OBJECT_INVISIBLE);
-      } else {
-        tracking_ = false;
-        RCLCPP_INFO(this->get_logger(), "Status OBJECT_LOST.");
-        PubStatus(protocol::msg::TrackingStatus::OBJECT_LOST);
-        if (face_mode_) {
-          curr_status_ = protocol::msg::TrackingStatus::STATUS_RECOGNIZING;
-          // Restart face recognition
-          if (CallService(face_client_, 0, "face-interval=2")) {
-            RCLCPP_INFO(this->get_logger(), "Restart face recognition success.");
-            start_time_.stamp = rclcpp::Clock().now();
-          } else {
-            RCLCPP_ERROR(this->get_logger(), "Restart face recognition fail.");
-          }
-        } else {
-          curr_status_ = protocol::msg::TrackingStatus::STATUS_SELECTING;
-        }
-      }
-    }
-  }
-
-  // Current detection not empty, update data storage
-  if (!bboxDet.empty()) {
-    std::unique_lock<std::mutex> lk(detections_mut_);
-    curr_detections_.header = msg->header;
-    curr_detections_.vecInfo.clear();
-    curr_detections_.vecInfo = bboxDet;
-  }
-
-  if (100 != curr_status_) {
-    RCLCPP_DEBUG(this->get_logger(), "Pub status in tracking process.");
-    PubStatus(curr_status_);
-  }
-}
-
-void ObjectTracking::ProcessFace(const FaceInfo::SharedPtr msg, rclcpp::Logger logger)
-{
-  if (deactivate_) {
-    return;
-  }
-
-  RCLCPP_INFO(logger, "Received face recognition result. ");
-  std_msgs::msg::Header currTime;
-  currTime.stamp = rclcpp::Clock().now();
-  float intervalStart = abs(
-    static_cast<double>(start_time_.stamp.sec) -
-    static_cast<double>(currTime.stamp.sec) +
-    static_cast<double>(static_cast<int>(start_time_.stamp.nanosec) -
-    static_cast<int>(currTime.stamp.nanosec)) *
-    static_cast<double>(1.0e-9));
-  RCLCPP_INFO(logger, "Waiting interval of face recognition is %f", intervalStart);
-  if (intervalStart > 30) {
-    RCLCPP_ERROR(this->get_logger(), "Find matched face timeout with 30s.");
-    if (!CallService(face_client_, 0, "face-interval=0")) {
-      RCLCPP_ERROR(logger, "Close face recognition fail. ");
-    }
-    RCLCPP_INFO(this->get_logger(), "Status START_FAIL.");
-    PubStatus(protocol::msg::TrackingStatus::START_FAIL);
-  }
-
-  bool bFaceFound = false;
-  StampedBbox faceTracked;
-  faceTracked.header = msg->header;
-  for (size_t i = 0; i < msg->count && !bFaceFound; ++i) {
-    if (msg->infos[i].is_host) {
-      RCLCPP_INFO(logger, "Find host according to face recognition result. ");
-      bFaceFound = true;
-      PersonInfo info(toCV(msg->infos[i].roi));
-      faceTracked.vecInfo.push_back(info);
-    }
-  }
-
-  if (!faceTracked.vecInfo.empty()) {
-    std::unique_lock<std::mutex> lk(detections_mut_);
-    if (0 == GetMatchFace(curr_detections_, faceTracked)) {
-      RCLCPP_INFO(logger, "Find matched body with specified face success. ");
-      curr_status_ = protocol::msg::TrackingStatus::STATUS_TRACKING;
-      if (!CallService(face_client_, 0, "face-interval=0")) {
-        RCLCPP_ERROR(logger, "Close face recognition fail. ");
-      }
-      RCLCPP_INFO(this->get_logger(), "Status START_SUCCESS.");
-      PubStatus(protocol::msg::TrackingStatus::START_SUCCESS);
-      tracking_ = true;
-      unmatch_count_ = 0;
-    }
-  }
-}
-
-bool ObjectTracking::CallService(
-  rclcpp::Client<CameraService>::SharedPtr & client,
-  const uint8_t & cmd, const std::string & args)
-{
-  auto req = std::make_shared<CameraService::Request>();
-  req->command = cmd;
-  req->args = args;
-
-  std::chrono::nanoseconds timeout = std::chrono::nanoseconds(-1);
-  while (!client->wait_for_service(timeout)) {
-    if (!rclcpp::ok()) {
-      RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for the service. Exiting.");
-      return false;
-    }
-    RCLCPP_INFO(this->get_logger(), "Service not available, waiting again...");
-  }
-
-  auto client_cb = [timeout](rclcpp::Client<CameraService>::SharedFuture future) {
-      std::future_status status = future.wait_for(timeout);
-
-      if (status == std::future_status::ready) {
-        if (0 != future.get()->result) {
-          return false;
-        } else {
-          return true;
-        }
-      } else {
-        return false;
-      }
-    };
-
-  auto result = client->async_send_request(req, client_cb);
-  return true;
-}
-
-void ObjectTracking::TrackingCallback(
-  const std::shared_ptr<rmw_request_id_t>,
-  const std::shared_ptr<BodyRegion::Request> req,
-  std::shared_ptr<BodyRegion::Response> res)
-{
-  cv::Rect rect = toCV(req->roi);
-  RCLCPP_INFO(
-    this->get_logger(), "Received body to track from app, rect: %d, %d, %d, %d",
-    rect.x, rect.y, rect.width, rect.height);
-  std::unique_lock<std::mutex> lk(detections_mut_);
-  if (0 != GetMatchBody(curr_detections_, rect)) {
-    res->success = false;
-  } else {
-    curr_status_ = protocol::msg::TrackingStatus::STATUS_TRACKING;
-    res->success = true;
-  }
-}
-
-void ObjectTracking::ModeCallback(
-  const std::shared_ptr<rmw_request_id_t>,
-  const std::shared_ptr<NavMode::Request> req,
-  std::shared_ptr<NavMode::Response> res)
-{
-  RCLCPP_INFO(this->get_logger(), "Change mode request: %d", req->sub_mode);
-  if (NavMode::Request::TRACK_F == req->sub_mode) {
-    // Call face recognition service
-    res->success = CallService(face_client_, 0, "face-interval=2");
-    if (!res->success) {
-      RCLCPP_ERROR(this->get_logger(), "Call service face recognition fail. ");
-    } else {
-      RCLCPP_INFO(this->get_logger(), "Call service face recognition success. ");
-      start_time_.stamp = rclcpp::Clock().now();
-      face_mode_ = true;
-      curr_status_ = protocol::msg::TrackingStatus::STATUS_RECOGNIZING;
-    }
-  } else if (NavMode::Request::TRACK_S == req->sub_mode) {
-    res->success = true;
-    face_mode_ = false;
-    curr_status_ = protocol::msg::TrackingStatus::STATUS_SELECTING;
-  } else {
-    RCLCPP_ERROR(this->get_logger(), "Unknown mode. ");
-    face_mode_ = false;
   }
 }
 
@@ -488,7 +253,6 @@ void ObjectTracking::HandlerThread()
 
     // Get pose of tracked bbox and pub
     PubPose(bodies.header, personTracked);
-    PubRect(bodies.header, personTracked);
   }
 }
 
@@ -554,6 +318,7 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     tracked.bbox.y + tracked.bbox.height / 2.0);
   cv::Mat ai_depth;
   if (!depth_image.empty()) {
+    unfound_count_ = 0;
     if (tracked.bbox.x > 50 && tracked.bbox.x + tracked.bbox.width < 1230) {
       RCLCPP_INFO(this->get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
@@ -596,9 +361,10 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     }
   } else {
     RCLCPP_ERROR(this->get_logger(), "Cannot find depth image, cannot calculate pose. ");
+    unfound_count_++;
   }
 
-  if (filter_ptr_->initialized_ && uncorrect_count_ <= 3) {
+  if (filter_ptr_->initialized_ && uncorrect_count_ <= 3 && unfound_count_ < 10) {
     float delta = abs(
       static_cast<double>(posePub.header.stamp.sec) - static_cast<double>(last_stamp_.sec) +
       static_cast<double>(static_cast<int>(posePub.header.stamp.nanosec) -
@@ -630,23 +396,6 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       PubStatus(protocol::msg::TrackingStatus::OBJECT_NEAR);
     }
   }
-}
-
-void ObjectTracking::PubRect(const std_msgs::msg::Header & header, const PersonInfo & tracked)
-{
-  BodyInfo pubInfos;
-  pubInfos.header = header;
-  if (tracked.bbox.width > 0 && tracked.bbox.height > 0) {
-    pubInfos.count = 1;
-    Body body;
-    body.roi = toROS(tracked.bbox);
-    body.reid = tracked.id;
-    pubInfos.infos.push_back(body);
-  } else {
-    pubInfos.count = 0;
-  }
-
-  rect_pub_->publish(pubInfos);
 }
 
 float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked)
@@ -708,68 +457,6 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
   }
 
   return distance;
-}
-
-int ObjectTracking::GetMatchFace(const StampedBbox & detections, const StampedBbox & stamped_face)
-{
-  // Timeout 30s from start and 3s from body
-  float intervalBody = abs(
-    static_cast<double>(detections.header.stamp.sec) -
-    static_cast<double>(stamped_face.header.stamp.sec) +
-    static_cast<double>(static_cast<int>(detections.header.stamp.nanosec) -
-    static_cast<int>(stamped_face.header.stamp.nanosec)) *
-    static_cast<double>(1.0e-9));
-
-  RCLCPP_INFO(
-    this->get_logger(), "body interval: %f. ", intervalBody);
-  if (intervalBody > 3) {
-    RCLCPP_ERROR(this->get_logger(), "Find match face timeout. ");
-    return -1;
-  }
-
-  cv::Rect face = stamped_face.vecInfo[0].bbox;
-  std::map<float, int> matchedDet;
-  cv::Point2d faceCenter = cv::Point2d(face.x + face.width / 2.0, face.y + face.height / 2.0);
-  for (size_t i = 0; i < detections.vecInfo.size(); ++i) {
-    cv::Rect bbox = detections.vecInfo[i].bbox;
-    cv::Point2d bodyCenter = cv::Point2d(bbox.x + bbox.width / 2.0, bbox.y + bbox.height / 2.0);
-    if (abs(bodyCenter.x - faceCenter.x) < bbox.width / 2.0 && faceCenter.x > bbox.x &&
-      faceCenter.y > bbox.y)
-    {
-      matchedDet.insert(
-        std::pair<float,
-        int>(abs(abs(bodyCenter.x - faceCenter.x) - bbox.width / 2.0), i));
-    }
-  }
-  if (matchedDet.empty()) {
-    RCLCPP_ERROR(
-      this->get_logger(), "Can not find match detection according to selected face bbox. ");
-    return -1;
-  }
-
-  std::map<float, int>::iterator it = matchedDet.begin();
-  cv::Rect bodyBbox = detections.vecInfo[it->second].bbox;
-  return ProcessObject(detections.header, bodyBbox);
-}
-
-int ObjectTracking::GetMatchBody(const StampedBbox & detections, const cv::Rect & body)
-{
-  return ProcessObject(detections.header, body);
-}
-
-int ObjectTracking::ProcessObject(const std_msgs::msg::Header, const cv::Rect & bbox)
-{
-  // Call reid to set tracking object
-  char text[100];
-  snprintf(text, sizeof(text), "reid-bbox=%d,%d,%d,%d", bbox.x, bbox.y, bbox.width, bbox.height);
-  if (!CallService(reid_client_, 0, text)) {
-    RCLCPP_ERROR(this->get_logger(), "Call reid service fail. ");
-    return -1;
-  }
-  tracking_ = true;
-  unmatch_count_ = 0;
-
-  return 0;
 }
 
 bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)

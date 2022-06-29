@@ -38,12 +38,23 @@ add_executable(cyberdog_tracking
   src/distance_filter.cpp
   src/object_tracking.cpp
 )
-
 ament_target_dependencies(cyberdog_tracking rclcpp sensor_msgs std_msgs geometry_msgs cv_bridge tf2_ros
   OpenCV protocol)
 
+add_executable(sub
+  src/subscribe.cpp
+)
+ament_target_dependencies(sub rclcpp sensor_msgs)
+
+add_executable(set_object
+  src/set_object.cpp
+)
+ament_target_dependencies(set_object rclcpp sensor_msgs protocol)
+
 install(TARGETS
   cyberdog_tracking
+  sub
+  set_object
   DESTINATION lib/${PROJECT_NAME}
 )
 
