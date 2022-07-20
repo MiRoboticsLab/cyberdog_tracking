@@ -11,6 +11,8 @@ public:
   MinimalSubscriber()
   : Node("minimal_subscriber")
   {
+    rclcpp::SensorDataQoS depth_qos;
+    depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
     subscription_ = this->create_subscription<sensor_msgs::msg::Image>(
       "camera/depth/image_rect_raw", 10, std::bind(&MinimalSubscriber::topic_callback, this, _1));
   }

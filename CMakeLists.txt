@@ -16,8 +16,8 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(tf2_ros REQUIRED)
-find_package(OpenCV 4 REQUIRED)
 find_package(protocol REQUIRED)
+find_package(OpenCV 4 REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 

@@ -106,15 +106,15 @@ void ObjectTracking::CreateSub()
   body_sub_ = create_subscription<BodyInfo>("body", sub_qos, body_callback);
 
   // Subscribe depth image to process
-  rclcpp::SensorDataQoS depth_qos;
-  depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+  // rclcpp::SensorDataQoS depth_qos;
+  // depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   auto depth_callback = [this](const sensor_msgs::msg::Image::SharedPtr msg) {
       ProcessDepth(msg, this->get_logger());
     };
   RCLCPP_INFO(this->get_logger(), "Subscribing to depth image topic. ");
   depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
     "camera/depth/image_rect_raw",
-    depth_qos, depth_callback);
+    10, depth_callback);
 
   // Subscribe realsense depth camera info
   rclcpp::SensorDataQoS info_qos;
