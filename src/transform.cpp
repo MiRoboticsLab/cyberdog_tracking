@@ -47,7 +47,7 @@ Transform::Transform(
       (cv::Mat_<double>(3, 1) << -0.059059660881757736, 4.421528137754649e-05,
       6.807535100961104e-05);
   }
-  // TODO: remove hard code
+  // TODO(lff): remove hard code
   depth2color_r_ =
     (cv::Mat_<double>(3, 3) << 0.9998643294370005429883, -0.01564580708279019252704,
     -0.005150867909859900908853,

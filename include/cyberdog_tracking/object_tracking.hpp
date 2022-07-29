@@ -88,7 +88,6 @@ private:
   int unfound_count_;
 
   bool tracking_;
-
 };
 
 }  // namespace cyberdog_tracking
