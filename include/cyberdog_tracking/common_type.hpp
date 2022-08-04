@@ -27,23 +27,22 @@
 
 #include "protocol/msg/body.hpp"
 #include "protocol/msg/body_info.hpp"
-#include "protocol/msg/face.hpp"
-#include "protocol/msg/face_info.hpp"
+#include "protocol/msg/person.hpp"
+#include "protocol/msg/tracking_status.hpp"
 #include "protocol/srv/camera_service.hpp"
 #include "protocol/srv/body_region.hpp"
 #include "protocol/srv/nav_mode.hpp"
-#include "protocol/msg/tracking_status.hpp"
+
 
 namespace cyberdog_tracking
 {
 
-using CameraService = protocol::srv::CameraService;
-using BodyRegion = protocol::srv::BodyRegion;
-using Body = protocol::msg::Body;
-using BodyInfo = protocol::msg::BodyInfo;
-using FaceInfo = protocol::msg::FaceInfo;
-using NavMode = protocol::srv::NavMode;
-using TrackingStatus = protocol::msg::TrackingStatus;
+using BodyT = protocol::msg::Body;
+using BodyInfoT = protocol::msg::BodyInfo;
+using PersonT = protocol::msg::Person;
+using TrackingStatusT = protocol::msg::TrackingStatus;
+using BodyRegionT = protocol::srv::BodyRegion;
+using CameraServiceT = protocol::srv::CameraService;
 
 struct PersonInfo
 {
@@ -69,19 +68,6 @@ struct StampedBbox
 {
   std_msgs::msg::Header header;
   std::vector<PersonInfo> vecInfo;
-};
-
-struct StampedPose
-{
-  std_msgs::msg::Header header;
-  cv::Vec3d pose;
-};
-
-struct FaceStruct
-{
-  std::mutex mtx;
-  std::condition_variable cond;
-  StampedBbox stampedFece;
 };
 
 struct HandlerStruct

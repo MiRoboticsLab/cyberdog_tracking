@@ -99,11 +99,11 @@ void ObjectTracking::CreateSub()
   // Subscribe body detection topic to process
   rclcpp::SensorDataQoS sub_qos;
   sub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
-  auto body_callback = [this](const BodyInfo::SharedPtr msg) {
+  auto body_callback = [this](const PersonT::SharedPtr msg) {
       ProcessBody(msg, this->get_logger());
     };
   RCLCPP_INFO(this->get_logger(), "Subscribing to body detection topic. ");
-  body_sub_ = create_subscription<BodyInfo>("body", sub_qos, body_callback);
+  body_sub_ = create_subscription<PersonT>("person", sub_qos, body_callback);
 
   // Subscribe depth image to process
   // rclcpp::SensorDataQoS depth_qos;
@@ -134,7 +134,7 @@ void ObjectTracking::CreatePub()
   rclcpp::ServicesQoS pub_qos;
   pub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("tracking_pose", pub_qos);
-  status_pub_ = create_publisher<TrackingStatus>("tracking_status", pub_qos);
+  status_pub_ = create_publisher<TrackingStatusT>("tracking_status", pub_qos);
 }
 
 void ObjectTracking::ProcessDepth(
@@ -206,20 +206,20 @@ sensor_msgs::msg::RegionOfInterest toROS(const cv::Rect & rect)
   return roi;
 }
 
-void ObjectTracking::ProcessBody(const BodyInfo::SharedPtr msg, rclcpp::Logger logger)
+void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger)
 {
   RCLCPP_DEBUG(
     logger, "Received detection result, ts %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
-  RCLCPP_DEBUG(logger, "Received body num %d", msg->count);
+  RCLCPP_DEBUG(logger, "Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
   std::vector<PersonInfo> bboxDet;
-  for (size_t i = 0; i < msg->count; ++i) {
-    cv::Rect bbox = toCV(msg->infos[i].roi);
-    PersonInfo info(bbox, msg->infos[i].reid);
+  for (size_t i = 0; i < msg->body_info.count; ++i) {
+    cv::Rect bbox = toCV(msg->body_info.infos[i].roi);
+    PersonInfo info(bbox, msg->body_info.infos[i].reid);
     bboxDet.push_back(info);
-    if (!msg->infos[i].reid.empty()) {
+    if (!msg->body_info.infos[i].reid.empty()) {
       tracked.vecInfo.push_back(info);
       tracked.header = msg->header;
       std::unique_lock<std::mutex> lk(handler_.mtx);
@@ -280,9 +280,9 @@ geometry_msgs::msg::Point toPosition(
 
 void ObjectTracking::PubStatus(const uint8_t & status)
 {
-  TrackingStatus trackingStatus;
-  trackingStatus.status = status;
-  status_pub_->publish(trackingStatus);
+  TrackingStatusT TrackingStatusT;
+  TrackingStatusT.status = status;
+  status_pub_->publish(TrackingStatusT);
 }
 
 void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonInfo & tracked)
@@ -331,7 +331,7 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       RCLCPP_DEBUG(this->get_logger(), "Cloud handler cost: %f ms", time * 1000);
     } else {
       RCLCPP_INFO(this->get_logger(), "Status OBJECT_EDGE.");
-      PubStatus(protocol::msg::TrackingStatus::OBJECT_EDGE);
+      PubStatus(TrackingStatusT::OBJECT_EDGE);
     }
 
     // Get person pose and publish
@@ -390,10 +390,10 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     RCLCPP_INFO(this->get_logger(), "Straight line distance from person to dog: %f", dis);
     if (dis > 3.0) {
       RCLCPP_INFO(this->get_logger(), "Status OBJECT_FAR.");
-      PubStatus(protocol::msg::TrackingStatus::OBJECT_FAR);
+      PubStatus(TrackingStatusT::OBJECT_FAR);
     } else if (dis < 0.8) {
       RCLCPP_INFO(this->get_logger(), "Status OBJECT_NEAR.");
-      PubStatus(protocol::msg::TrackingStatus::OBJECT_NEAR);
+      PubStatus(TrackingStatusT::OBJECT_NEAR);
     }
   }
 }

@@ -48,7 +48,7 @@ private:
 
   void ProcessDepth(const sensor_msgs::msg::Image::SharedPtr msg, rclcpp::Logger logger);
   void ProcessInfo(const sensor_msgs::msg::CameraInfo::SharedPtr msg, rclcpp::Logger logger);
-  void ProcessBody(const BodyInfo::SharedPtr msg, rclcpp::Logger logger);
+  void ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger);
 
   void HandlerThread();
 
@@ -61,10 +61,10 @@ private:
 private:
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
-  rclcpp::Subscription<BodyInfo>::SharedPtr body_sub_;
+  rclcpp::Subscription<PersonT>::SharedPtr body_sub_;
 
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
-  rclcpp::Publisher<TrackingStatus>::SharedPtr status_pub_;
+  rclcpp::Publisher<TrackingStatusT>::SharedPtr status_pub_;
 
   sensor_msgs::msg::CameraInfo camera_info_;
   builtin_interfaces::msg::Time last_stamp_;
