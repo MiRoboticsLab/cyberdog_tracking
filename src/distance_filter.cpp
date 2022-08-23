@@ -41,12 +41,16 @@ cv::Point3f DistanceFilter::Predict(const float & delta)
   return predictPose;
 }
 
-void DistanceFilter::Correct(const cv::Point3f & pose)
+cv::Point3f DistanceFilter::Correct(const cv::Point3f & pose)
 {
   measurement_.at<float>(0) = pose.x;
   measurement_.at<float>(1) = pose.y;
   measurement_.at<float>(2) = pose.z;
-  filter_.correct(measurement_);
+  cv::Mat posePost = filter_.correct(measurement_);
+  cv::Point3f correctedPose = cv::Point3f(
+    posePost.at<float>(0), posePost.at<float>(1),
+    posePost.at<float>(2));
+  return correctedPose;
 }
 
 void DistanceFilter::Init()
@@ -71,7 +75,7 @@ void DistanceFilter::Init()
     0, 0, 1, 0, 0, 0);
 
   setIdentity(filter_.processNoiseCov, cv::Scalar::all(1e-5));
-  setIdentity(filter_.measurementNoiseCov, cv::Scalar::all(1e-2));
+  setIdentity(filter_.measurementNoiseCov, cv::Scalar::all(1e-4));
   setIdentity(filter_.errorCovPost, cv::Scalar::all(1));
 }
 

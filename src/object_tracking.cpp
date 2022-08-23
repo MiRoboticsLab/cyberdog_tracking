@@ -172,8 +172,9 @@ int findNearest(const std::vector<StampedImage> & vecImg, const std_msgs::msg::H
   std::cout << "tofind stamp: " << header.stamp.sec << ", " << header.stamp.nanosec << std::endl;
   std::cout << "depth img stamp: " << std::endl;
   for (auto & img : vecImg) {
-    std::cout << img.header.stamp.sec << ", " << img.header.stamp.nanosec << std::endl;
+    std::cout << img.header.stamp.sec << ", " << img.header.stamp.nanosec << ";";
   }
+  std::cout << std::endl;
   int position = -1;
   float minInterval = 0.1;
   for (size_t i = 0; i < vecImg.size(); ++i) {
@@ -208,10 +209,10 @@ sensor_msgs::msg::RegionOfInterest toROS(const cv::Rect & rect)
 
 void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger)
 {
-  RCLCPP_DEBUG(
+  RCLCPP_INFO(
     logger, "Received detection result, ts %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
-  RCLCPP_DEBUG(logger, "Received body num %d", msg->body_info.count);
+  RCLCPP_INFO(logger, "Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
   std::vector<PersonInfo> bboxDet;
@@ -291,7 +292,7 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     return;
   }
 
-  // Find depth image and get distance
+  // Find depth image according to timestamp
   cv::Mat depth_image;
   {
     std::unique_lock<std::mutex> lk(depth_mtx_);
@@ -316,10 +317,20 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
   cv::Vec2d bodyCenter = cv::Vec2d(
     tracked.bbox.x + tracked.bbox.width / 2.0,
     tracked.bbox.y + tracked.bbox.height / 2.0);
+  // Kalman predict with pre frame
+  if (filter_ptr_->initialized_ && unfound_count_ < 10) {
+    float delta = abs(
+      static_cast<double>(posePub.header.stamp.sec) - static_cast<double>(last_stamp_.sec) +
+      static_cast<double>(static_cast<int>(posePub.header.stamp.nanosec) -
+      static_cast<int>(last_stamp_.nanosec)) * static_cast<double>(1.0e-9));
+    cv::Point3f posePredict = filter_ptr_->Predict(delta);
+    posePub.pose = toROS(posePredict);
+  }
+
   cv::Mat ai_depth;
   if (!depth_image.empty()) {
     unfound_count_ = 0;
-    if (tracked.bbox.x > 50 && tracked.bbox.x + tracked.bbox.width < 1230) {
+    if (tracked.bbox.x > 25 && tracked.bbox.x + tracked.bbox.width < 615) {
       RCLCPP_INFO(this->get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
       ai_depth = trans_ptr_->DepthToAi(depth_image, camera_info_, row_scale_, col_scale_);
@@ -334,9 +345,9 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       PubStatus(TrackingStatusT::OBJECT_EDGE);
     }
 
-    // Get person pose and publish
+    // Get person position and publish
     float distance = GetDistance(ai_depth, tracked.bbox);
-    std::cout << "dis: " << distance << std::endl;
+    std::cout << "###caldis: " << distance << std::endl;
     geometry_msgs::msg::PoseStamped pose;
     pose.header = posePub.header;
     pose.pose.position = toPosition(distance, cameraParam, bodyCenter);
@@ -345,16 +356,17 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     if (0.0 != distance) {
       uncorrect_count_ = 0;
       RCLCPP_INFO(this->get_logger(), "Get pose success, correct kf. ");
-      if (!filter_ptr_->initialized_ || uncorrect_count_ > 3) {
+      if (!filter_ptr_->initialized_) {
         filter_ptr_->Init(
           cv::Point3f(
             pose.pose.position.x, pose.pose.position.y,
             pose.pose.position.z));
       } else {
-        filter_ptr_->Correct(
+        cv::Point3f posePost = filter_ptr_->Correct(
           cv::Point3f(
             pose.pose.position.x, pose.pose.position.y,
             pose.pose.position.z));
+        posePub.pose = toROS(posePost);
       }
     } else {
       uncorrect_count_++;
@@ -362,22 +374,11 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
   } else {
     RCLCPP_ERROR(this->get_logger(), "Cannot find depth image, cannot calculate pose. ");
     unfound_count_++;
+    std::cout << "###caldis: null " << std::endl;
+    std::cout << "###discorrect: null " << std::endl;
   }
 
-  if (filter_ptr_->initialized_ && uncorrect_count_ <= 3 && unfound_count_ < 10) {
-    float delta = abs(
-      static_cast<double>(posePub.header.stamp.sec) - static_cast<double>(last_stamp_.sec) +
-      static_cast<double>(static_cast<int>(posePub.header.stamp.nanosec) -
-      static_cast<int>(last_stamp_.nanosec)) * static_cast<double>(1.0e-9));
-    cv::Point3f posePredict = filter_ptr_->Predict(delta);
-    posePub.pose = toROS(posePredict);
-    float distance = posePub.pose.position.x;
-    posePub.pose.position = toPosition(distance, cameraParam, bodyCenter);
-    // Add angle of current pose and 300ms after
-    cv::Point3f poseFuture = filter_ptr_->Predict(0.3);
-    float angle = std::atan((poseFuture.y - posePredict.y) / (poseFuture.x - posePredict.x));
-    RCLCPP_INFO(this->get_logger(), "Angle with x axis: %f", angle * 180 / CV_PI);
-    posePub.pose.orientation.w = angle;
+  if (filter_ptr_->initialized_ && unfound_count_ < 10) {
     pose_pub_->publish(posePub);
     last_stamp_ = posePub.header.stamp;
     RCLCPP_INFO(
@@ -395,6 +396,9 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       RCLCPP_INFO(this->get_logger(), "Status OBJECT_NEAR.");
       PubStatus(TrackingStatusT::OBJECT_NEAR);
     }
+    std::cout << "###pubpose: " << posePub.pose.position.x << std::endl;
+  } else {
+    std::cout << "###pubpose: null " << std::endl;
   }
 }
 
@@ -465,13 +469,13 @@ bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
   auto tf_buffer = std::make_shared<tf2_ros::Buffer>(get_clock());
   auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
   int i = 0;
-  while (!bSuccess && i < 3) {
+  while (!bSuccess && i < 1) {
     RCLCPP_INFO(this->get_logger(), "Try transform from depth to color times %d. ", i);
     try {
       RCLCPP_INFO(this->get_logger(), "Lookup transform from depth to color. ");
       geometry_msgs::msg::TransformStamped trans = tf_buffer->lookupTransform(
         "camera_color_optical_frame", "camera_depth_optical_frame", tf2::TimePointZero,
-        tf2::durationFromSec(10));
+        tf2::durationFromSec(1));
       RCLCPP_INFO(this->get_logger(), "Find transform from depth to color success. ");
       RCLCPP_INFO(
         this->get_logger(), "Rotation: x - %.9f, y - %.9f, z - %.9f, w - %.9f. ",

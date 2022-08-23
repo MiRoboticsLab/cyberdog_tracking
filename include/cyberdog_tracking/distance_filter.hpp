@@ -28,7 +28,7 @@ public:
 
   void Init(const cv::Point3f & pose);
   cv::Point3f Predict(const float & delta);
-  void Correct(const cv::Point3f & pose);
+  cv::Point3f Correct(const cv::Point3f & pose);
 
   bool initialized_;
   cv::KalmanFilter filter_;
