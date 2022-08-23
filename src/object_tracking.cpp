@@ -26,11 +26,8 @@
 #include <cmath>
 
 #include "cv_bridge/cv_bridge.h"
-
 #include "tf2/LinearMath/Transform.h"
-
 #include "rcutils/error_handling.h"
-
 
 namespace cyberdog_tracking
 {
@@ -53,6 +50,7 @@ void ObjectTracking::Initialize()
   // Create process thread
   handler_thread_ = std::make_shared<std::thread>(&ObjectTracking::HandlerThread, this);
 
+  // Set logger level
   auto ret = rcutils_logging_set_logger_level(this->get_logger().get_name(), logger_level_);
   if (ret != RCUTILS_RET_OK) {
     RCLCPP_ERROR(this->get_logger(), "Error setting severity: %s", rcutils_get_error_string().str);
@@ -83,14 +81,14 @@ void ObjectTracking::CreateObject()
 
   // Get extrinsics parameters through tf
   RCLCPP_INFO(this->get_logger(), "Get extrinsics parameters.");
-  cv::Mat rotDepth2Color, transDepth2Color;
-  if (!GetExtrinsicsParam(rotDepth2Color, transDepth2Color)) {
+  cv::Mat rot_depth_to_color, trans_depth_to_color;
+  if (!GetExtrinsicsParam(rot_depth_to_color, trans_depth_to_color)) {
     RCLCPP_ERROR(this->get_logger(), "Get external parameter fail, cannot align depth to color. ");
   }
 
   // Create object
   RCLCPP_INFO(this->get_logger(), "Create object.");
-  trans_ptr_ = new Transform(param_path_, rotDepth2Color, transDepth2Color, stereo_mode_);
+  trans_ptr_ = new Transform(param_path_, rot_depth_to_color, trans_depth_to_color, stereo_mode_);
   filter_ptr_ = new DistanceFilter();
 }
 
@@ -108,22 +106,22 @@ void ObjectTracking::CreateSub()
   // Subscribe depth image to process
   // rclcpp::SensorDataQoS depth_qos;
   // depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
-  auto depth_callback = [this](const sensor_msgs::msg::Image::SharedPtr msg) {
+  auto depth_callback = [this](const SensorImageT::SharedPtr msg) {
       ProcessDepth(msg, this->get_logger());
     };
   RCLCPP_INFO(this->get_logger(), "Subscribing to depth image topic. ");
-  depth_sub_ = create_subscription<sensor_msgs::msg::Image>(
+  depth_sub_ = create_subscription<SensorImageT>(
     "camera/depth/image_rect_raw",
     10, depth_callback);
 
   // Subscribe realsense depth camera info
   rclcpp::SensorDataQoS info_qos;
   info_qos.reliability(RMW_QOS_POLICY_RELIABILITY_SYSTEM_DEFAULT);
-  auto info_callback = [this](const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
+  auto info_callback = [this](const SensorCameraInfoT::SharedPtr msg) {
       ProcessInfo(msg, this->get_logger());
     };
   RCLCPP_INFO(this->get_logger(), "Subscribing to depth camera info topic. ");
-  info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+  info_sub_ = create_subscription<SensorCameraInfoT>(
     "camera/depth/camera_info",
     info_qos, info_callback);
 }
@@ -133,12 +131,12 @@ void ObjectTracking::CreatePub()
   // Publish person position
   rclcpp::ServicesQoS pub_qos;
   pub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
-  pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("tracking_pose", pub_qos);
+  pose_pub_ = create_publisher<GeometryPoseStampedT>("tracking_pose", pub_qos);
   status_pub_ = create_publisher<TrackingStatusT>("tracking_status", pub_qos);
 }
 
 void ObjectTracking::ProcessDepth(
-  const sensor_msgs::msg::Image::SharedPtr msg,
+  const SensorImageT::SharedPtr msg,
   rclcpp::Logger logger)
 {
   RCLCPP_INFO(
@@ -146,18 +144,18 @@ void ObjectTracking::ProcessDepth(
     msg->header.stamp.nanosec);
 
   cv_bridge::CvImagePtr depth_ptr = cv_bridge::toCvCopy(msg);
-  StampedImage stampedImg;
-  stampedImg.header = msg->header;
-  stampedImg.image = depth_ptr->image.clone();
+  StampedImage stamped_img;
+  stamped_img.header = msg->header;
+  stamped_img.image = depth_ptr->image.clone();
   std::unique_lock<std::mutex> lk(depth_mtx_);
   if (vec_stamped_depth_.size() > 6) {
     vec_stamped_depth_.erase(vec_stamped_depth_.begin());
   }
-  vec_stamped_depth_.push_back(stampedImg);
+  vec_stamped_depth_.push_back(stamped_img);
 }
 
 void ObjectTracking::ProcessInfo(
-  const sensor_msgs::msg::CameraInfo::SharedPtr msg,
+  const SensorCameraInfoT::SharedPtr msg,
   rclcpp::Logger logger)
 {
   RCLCPP_INFO(
@@ -167,23 +165,29 @@ void ObjectTracking::ProcessInfo(
   info_sub_ = nullptr;
 }
 
-int findNearest(const std::vector<StampedImage> & vecImg, const std_msgs::msg::Header & header)
+float CalInterval(const BuiltinTimeT & stamp1, const BuiltinTimeT & stamp2)
+{
+  float interval = abs(
+    static_cast<double>(stamp1.sec) - static_cast<double>(stamp2.sec) +
+    static_cast<double>(static_cast<int>(stamp1.nanosec) - static_cast<int>(stamp2.nanosec)) *
+    static_cast<double>(1.0e-9));
+  return interval;
+}
+
+int FindNearest(const std::vector<StampedImage> & img_buffer, const StdHeaderT & header)
 {
   std::cout << "tofind stamp: " << header.stamp.sec << ", " << header.stamp.nanosec << std::endl;
   std::cout << "depth img stamp: " << std::endl;
-  for (auto & img : vecImg) {
+  for (auto & img : img_buffer) {
     std::cout << img.header.stamp.sec << ", " << img.header.stamp.nanosec << ";";
   }
   std::cout << std::endl;
   int position = -1;
-  float minInterval = 0.1;
-  for (size_t i = 0; i < vecImg.size(); ++i) {
-    float interval = abs(
-      static_cast<double>(vecImg[i].header.stamp.sec) - static_cast<double>(header.stamp.sec) +
-      static_cast<double>(static_cast<int>(vecImg[i].header.stamp.nanosec) -
-      static_cast<int>(header.stamp.nanosec)) * static_cast<double>(1.0e-9));
-    if (interval < minInterval) {
-      minInterval = interval;
+  float min_interval = 0.1;
+  for (size_t i = 0; i < img_buffer.size(); ++i) {
+    float interval = CalInterval(img_buffer[i].header.stamp, header.stamp);
+    if (interval < min_interval) {
+      min_interval = interval;
       position = i;
     }
     std::cout << "interval: " << interval << std::endl;
@@ -191,13 +195,13 @@ int findNearest(const std::vector<StampedImage> & vecImg, const std_msgs::msg::H
   return position;
 }
 
-cv::Rect toCV(const sensor_msgs::msg::RegionOfInterest & roi)
+cv::Rect Convert2CV(const sensor_msgs::msg::RegionOfInterest & roi)
 {
   cv::Rect rect = cv::Rect(roi.x_offset, roi.y_offset, roi.width, roi.height);
   return rect;
 }
 
-sensor_msgs::msg::RegionOfInterest toROS(const cv::Rect & rect)
+sensor_msgs::msg::RegionOfInterest Convert2ROS(const cv::Rect & rect)
 {
   sensor_msgs::msg::RegionOfInterest roi;
   roi.x_offset = rect.x;
@@ -215,11 +219,11 @@ void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger lo
   RCLCPP_INFO(logger, "Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
-  std::vector<PersonInfo> bboxDet;
+  std::vector<PersonInfo> bbox_det;
   for (size_t i = 0; i < msg->body_info.count; ++i) {
-    cv::Rect bbox = toCV(msg->body_info.infos[i].roi);
+    cv::Rect bbox = Convert2CV(msg->body_info.infos[i].roi);
     PersonInfo info(bbox, msg->body_info.infos[i].reid);
-    bboxDet.push_back(info);
+    bbox_det.push_back(info);
     if (!msg->body_info.infos[i].reid.empty()) {
       tracked.vecInfo.push_back(info);
       tracked.header = msg->header;
@@ -245,38 +249,44 @@ void ObjectTracking::HandlerThread()
     }
 
     // Save and find tracking result according to reid
-    PersonInfo personTracked;
+    PersonInfo person_tracked;
     for (size_t i = 0; i < bodies.vecInfo.size(); ++i) {
       if (!bodies.vecInfo[i].id.empty()) {
-        personTracked = bodies.vecInfo[i];
+        person_tracked = bodies.vecInfo[i];
       }
     }
 
     // Get pose of tracked bbox and pub
-    PubPose(bodies.header, personTracked);
+    PubPose(bodies.header, person_tracked);
   }
 }
 
-geometry_msgs::msg::Pose toROS(const cv::Point3f & from)
+GeometryPoseT Convert2ROS(const cv::Point3f & from)
 {
-  geometry_msgs::msg::Pose to;
+  GeometryPoseT to;
   to.position.x = from.x;
   to.position.y = from.y;
   to.position.z = from.z;
   return to;
 }
 
-geometry_msgs::msg::Point toPosition(
-  float & distance, const cv::Mat & cameraParam,
+GeometryPointT Dis2Position(
+  float & distance, const cv::Mat & cam_param,
   const cv::Vec2d & center)
 {
-  geometry_msgs::msg::Point position;
+  GeometryPointT position;
   position.x = distance;
   position.y = -distance *
-    (center[0] - cameraParam.at<double>(0, 2)) / cameraParam.at<double>(0, 0);
+    (center[0] - cam_param.at<double>(0, 2)) / cam_param.at<double>(0, 0);
   position.z = -distance *
-    (center[1] - cameraParam.at<double>(1, 2)) / cameraParam.at<double>(1, 1);
+    (center[1] - cam_param.at<double>(1, 2)) / cam_param.at<double>(1, 1);
   return position;
+}
+
+cv::Point3f Convert2CV(const GeometryPointT & point)
+{
+  cv::Point3f cv_point = cv::Point3f(point.x, point.y, point.z);
+  return cv_point;
 }
 
 void ObjectTracking::PubStatus(const uint8_t & status)
@@ -286,7 +296,7 @@ void ObjectTracking::PubStatus(const uint8_t & status)
   status_pub_->publish(TrackingStatusT);
 }
 
-void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonInfo & tracked)
+void ObjectTracking::PubPose(const StdHeaderT & header, const PersonInfo & tracked)
 {
   if (tracked.id.empty()) {
     return;
@@ -299,7 +309,7 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     RCLCPP_DEBUG(
       this->get_logger(), "===To find depth image according to bbox ts: %.9d.%.9d",
       header.stamp.sec, header.stamp.nanosec);
-    int position = findNearest(vec_stamped_depth_, header);
+    int position = FindNearest(vec_stamped_depth_, header);
     if (position >= 0) {
       depth_image = vec_stamped_depth_[position].image.clone();
       RCLCPP_INFO(
@@ -310,21 +320,18 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
   }
 
   // Get body position and publish
-  geometry_msgs::msg::PoseStamped posePub;
-  posePub.header.stamp = header.stamp;
-  posePub.header.frame_id = "camera_link";
-  cv::Mat cameraParam = trans_ptr_->ai_camera_param_;
-  cv::Vec2d bodyCenter = cv::Vec2d(
+  GeometryPoseStampedT pose_pub;
+  pose_pub.header.stamp = header.stamp;
+  pose_pub.header.frame_id = "camera_link";
+  cv::Mat cam_param = trans_ptr_->ai_camera_param_;
+  cv::Vec2d body_center = cv::Vec2d(
     tracked.bbox.x + tracked.bbox.width / 2.0,
     tracked.bbox.y + tracked.bbox.height / 2.0);
   // Kalman predict with pre frame
   if (filter_ptr_->initialized_ && unfound_count_ < 10) {
-    float delta = abs(
-      static_cast<double>(posePub.header.stamp.sec) - static_cast<double>(last_stamp_.sec) +
-      static_cast<double>(static_cast<int>(posePub.header.stamp.nanosec) -
-      static_cast<int>(last_stamp_.nanosec)) * static_cast<double>(1.0e-9));
+    float delta = CalInterval(pose_pub.header.stamp, last_stamp_);
     cv::Point3f posePredict = filter_ptr_->Predict(delta);
-    posePub.pose = toROS(posePredict);
+    pose_pub.pose = Convert2ROS(posePredict);
   }
 
   cv::Mat ai_depth;
@@ -334,10 +341,6 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       RCLCPP_INFO(this->get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
       ai_depth = trans_ptr_->DepthToAi(depth_image, camera_info_, row_scale_, col_scale_);
-      // imshow
-      // cv::imshow("depth", ai_depth);
-      // cv::waitKey(10);
-
       double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
       RCLCPP_DEBUG(this->get_logger(), "Cloud handler cost: %f ms", time * 1000);
     } else {
@@ -348,25 +351,19 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     // Get person position and publish
     float distance = GetDistance(ai_depth, tracked.bbox);
     std::cout << "###caldis: " << distance << std::endl;
-    geometry_msgs::msg::PoseStamped pose;
-    pose.header = posePub.header;
-    pose.pose.position = toPosition(distance, cameraParam, bodyCenter);
+    GeometryPoseStampedT pose;
+    pose.header = pose_pub.header;
+    pose.pose.position = Dis2Position(distance, cam_param, body_center);
     pose.pose.orientation.w = 1.0;
 
     if (0.0 != distance) {
       uncorrect_count_ = 0;
       RCLCPP_INFO(this->get_logger(), "Get pose success, correct kf. ");
       if (!filter_ptr_->initialized_) {
-        filter_ptr_->Init(
-          cv::Point3f(
-            pose.pose.position.x, pose.pose.position.y,
-            pose.pose.position.z));
+        filter_ptr_->Init(Convert2CV(pose.pose.position));
       } else {
-        cv::Point3f posePost = filter_ptr_->Correct(
-          cv::Point3f(
-            pose.pose.position.x, pose.pose.position.y,
-            pose.pose.position.z));
-        posePub.pose = toROS(posePost);
+        cv::Point3f posePost = filter_ptr_->Correct(Convert2CV(pose.pose.position));
+        pose_pub.pose = Convert2ROS(posePost);
       }
     } else {
       uncorrect_count_++;
@@ -375,19 +372,18 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
     RCLCPP_ERROR(this->get_logger(), "Cannot find depth image, cannot calculate pose. ");
     unfound_count_++;
     std::cout << "###caldis: null " << std::endl;
-    std::cout << "###discorrect: null " << std::endl;
   }
 
   if (filter_ptr_->initialized_ && unfound_count_ < 10) {
-    pose_pub_->publish(posePub);
-    last_stamp_ = posePub.header.stamp;
+    pose_pub_->publish(pose_pub);
+    last_stamp_ = pose_pub.header.stamp;
     RCLCPP_INFO(
       this->get_logger(), "===Pose pub: %.5f, %.5f, %.5f",
-      posePub.pose.position.x,
-      posePub.pose.position.y,
-      posePub.pose.position.z);
+      pose_pub.pose.position.x,
+      pose_pub.pose.position.y,
+      pose_pub.pose.position.z);
 
-    double dis = sqrt(pow(posePub.pose.position.x, 2) + pow(posePub.pose.position.y, 2));
+    double dis = sqrt(pow(pose_pub.pose.position.x, 2) + pow(pose_pub.pose.position.y, 2));
     RCLCPP_INFO(this->get_logger(), "Straight line distance from person to dog: %f", dis);
     if (dis > 3.0) {
       RCLCPP_INFO(this->get_logger(), "Status OBJECT_FAR.");
@@ -396,7 +392,7 @@ void ObjectTracking::PubPose(const std_msgs::msg::Header & header, const PersonI
       RCLCPP_INFO(this->get_logger(), "Status OBJECT_NEAR.");
       PubStatus(TrackingStatusT::OBJECT_NEAR);
     }
-    std::cout << "###pubpose: " << posePub.pose.position.x << std::endl;
+    std::cout << "###pubpose: " << pose_pub.pose.position.x << std::endl;
   } else {
     std::cout << "###pubpose: null " << std::endl;
   }
@@ -407,53 +403,53 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
   float distance = 0.0;   // unit m
 
   if (!image.empty()) {
-    std::map<int, int> mapDepth;
+    std::map<int, int> map_depth;
     for (size_t i = body_tracked.x; i < body_tracked.x + body_tracked.width; ++i) {
       for (size_t j = body_tracked.y; j < body_tracked.y + body_tracked.height; ++j) {
         if (0.0 != image.at<double>(j, i)) {
           int val = floor(image.at<double>(j, i) * 10.0);
-          std::map<int, int>::iterator iter = mapDepth.find(val);
-          if (iter != mapDepth.end()) {
+          std::map<int, int>::iterator iter = map_depth.find(val);
+          if (iter != map_depth.end()) {
             iter->second++;
           } else {
-            mapDepth.insert(std::pair<int, int>(val, 1));
+            map_depth.insert(std::pair<int, int>(val, 1));
           }
         }
       }
     }
 
-    int sumCount = 0;
-    for (std::map<int, int>::iterator it = mapDepth.begin(); it != mapDepth.end(); ++it) {
+    int sum_count = 0;
+    for (std::map<int, int>::iterator it = map_depth.begin(); it != map_depth.end(); ++it) {
       // std::cout << it->first << "-" << it->second << "; ";
-      sumCount += it->second;
+      sum_count += it->second;
     }
     // std::cout << std::endl;
-    RCLCPP_DEBUG(this->get_logger(), "===Sumcount: %d", sumCount);
+    RCLCPP_DEBUG(this->get_logger(), "===sum_count: %d", sum_count);
 
-    int disSum = 0;
-    int disCount = 0;
-    bool bFind = false;
+    int dis_sum = 0;
+    int dis_count = 0;
+    bool is_find = false;
 
-    int lastValue = 0;
-    if (!mapDepth.empty()) {
-      lastValue = mapDepth.begin()->first;
+    int last_value = 0;
+    if (!map_depth.empty()) {
+      last_value = map_depth.begin()->first;
     }
-    if (sumCount > 100) {
-      for (std::map<int, int>::iterator it = mapDepth.begin(); it != mapDepth.end() && !bFind;
+    if (sum_count > 100) {
+      for (std::map<int, int>::iterator it = map_depth.begin(); it != map_depth.end() && !is_find;
         ++it)
       {
-        if ((static_cast<double>(it->second) / sumCount) > 0.02 && (it->first - lastValue) < 2) {
-          disCount += it->second;
-          disSum += it->first / 10.0 * it->second;
+        if ((static_cast<double>(it->second) / sum_count) > 0.02 && (it->first - last_value) < 2) {
+          dis_count += it->second;
+          dis_sum += it->first / 10.0 * it->second;
         } else {
-          if (disCount / static_cast<double>(sumCount) > 0.2) {
-            bFind = true;
-            distance = disSum / static_cast<double>(disCount);
+          if (dis_count / static_cast<double>(sum_count) > 0.2) {
+            is_find = true;
+            distance = dis_sum / static_cast<double>(dis_count);
           }
-          disSum = 0;
-          disCount = 0;
+          dis_sum = 0;
+          dis_count = 0;
         }
-        lastValue = it->first;
+        last_value = it->first;
       }
     } else {
       RCLCPP_ERROR(this->get_logger(), "Cloud point < 100 . ");
@@ -465,11 +461,11 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
 
 bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
 {
-  bool bSuccess = false;
+  bool is_success = false;
   auto tf_buffer = std::make_shared<tf2_ros::Buffer>(get_clock());
   auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
   int i = 0;
-  while (!bSuccess && i < 1) {
+  while (!is_success && i < 1) {
     RCLCPP_INFO(this->get_logger(), "Try transform from depth to color times %d. ", i);
     try {
       RCLCPP_INFO(this->get_logger(), "Lookup transform from depth to color. ");
@@ -496,7 +492,7 @@ bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
       trans_mat =
         (cv::Mat_<double>(3, 1) << trans.transform.translation.x, trans.transform.translation.y,
         trans.transform.translation.z);
-      bSuccess = true;
+      is_success = true;
     } catch (tf2::TransformException & ex) {
       RCLCPP_WARN(this->get_logger(), "%s", ex.what());
     } catch (...) {
@@ -504,7 +500,7 @@ bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
     }
     i++;
   }
-  return bSuccess;
+  return is_success;
 }
 
 ObjectTracking::~ObjectTracking()

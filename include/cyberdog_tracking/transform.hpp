@@ -26,7 +26,7 @@
 #include "opencv2/opencv.hpp"
 #include "opencv2/core/eigen.hpp"
 
-#include "sensor_msgs/msg/camera_info.hpp"
+#include "cyberdog_tracking/common_type.hpp"
 
 namespace cyberdog_tracking
 {
@@ -43,6 +43,7 @@ public:
   cv::Mat DepthToAi(
     const cv::Mat & depth_image, const sensor_msgs::msg::CameraInfo & camera_info,
     const float & rows_scale, const float & cols_scale);
+
   cv::Mat ai_camera_param_;
 
 private:

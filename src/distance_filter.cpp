@@ -17,6 +17,12 @@
 namespace cyberdog_tracking
 {
 
+cv::Point3f Convert(const cv::Mat & from)
+{
+  cv::Point3f to = cv::Point3f(from.at<float>(0), from.at<float>(1), from.at<float>(2));
+  return to;
+}
+
 DistanceFilter::DistanceFilter()
 : initialized_(false), state_num_(6), measure_num_(3)
 {
@@ -35,10 +41,8 @@ cv::Point3f DistanceFilter::Predict(const float & delta)
 {
   SetInterval(delta);
   cv::Mat prediction = filter_.predict();
-  cv::Point3f predictPose = cv::Point3f(
-    prediction.at<float>(0), prediction.at<float>(
-      1), prediction.at<float>(2));
-  return predictPose;
+  cv::Point3f predict_pose = Convert(prediction);
+  return predict_pose;
 }
 
 cv::Point3f DistanceFilter::Correct(const cv::Point3f & pose)
@@ -46,11 +50,9 @@ cv::Point3f DistanceFilter::Correct(const cv::Point3f & pose)
   measurement_.at<float>(0) = pose.x;
   measurement_.at<float>(1) = pose.y;
   measurement_.at<float>(2) = pose.z;
-  cv::Mat posePost = filter_.correct(measurement_);
-  cv::Point3f correctedPose = cv::Point3f(
-    posePost.at<float>(0), posePost.at<float>(1),
-    posePost.at<float>(2));
-  return correctedPose;
+  cv::Mat pose_post = filter_.correct(measurement_);
+  cv::Point3f pose_corrected = Convert(pose_post);
+  return pose_corrected;
 }
 
 void DistanceFilter::Init()

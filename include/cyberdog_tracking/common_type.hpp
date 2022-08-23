@@ -24,6 +24,10 @@
 #include "opencv2/opencv.hpp"
 
 #include "std_msgs/msg/header.hpp"
+#include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/camera_info.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
+#include "builtin_interfaces/msg/time.hpp"
 
 #include "protocol/msg/body.hpp"
 #include "protocol/msg/body_info.hpp"
@@ -33,9 +37,16 @@
 #include "protocol/srv/body_region.hpp"
 #include "protocol/srv/nav_mode.hpp"
 
-
 namespace cyberdog_tracking
 {
+
+using StdHeaderT = std_msgs::msg::Header;
+using SensorImageT = sensor_msgs::msg::Image;
+using SensorCameraInfoT = sensor_msgs::msg::CameraInfo;
+using GeometryPointT = geometry_msgs::msg::Point;
+using GeometryPoseT = geometry_msgs::msg::Pose;
+using GeometryPoseStampedT = geometry_msgs::msg::PoseStamped;
+using BuiltinTimeT = builtin_interfaces::msg::Time;
 
 using BodyT = protocol::msg::Body;
 using BodyInfoT = protocol::msg::BodyInfo;
@@ -49,24 +60,20 @@ struct PersonInfo
   cv::Rect bbox;
   std::string id;
   PersonInfo()
-  : id("")
-  {
-  }
+  : id("") {}
   explicit PersonInfo(const cv::Rect & bbox_, const std::string & id_ = "")
-  : bbox(bbox_), id(id_)
-  {
-  }
+  : bbox(bbox_), id(id_) {}
 };
 
 struct StampedImage
 {
-  std_msgs::msg::Header header;
+  StdHeaderT header;
   cv::Mat image;
 };
 
 struct StampedBbox
 {
-  std_msgs::msg::Header header;
+  StdHeaderT header;
   std::vector<PersonInfo> vecInfo;
 };
 

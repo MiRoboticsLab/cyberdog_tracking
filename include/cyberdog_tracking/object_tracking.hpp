@@ -22,10 +22,6 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
-#include "sensor_msgs/msg/image.hpp"
-#include "sensor_msgs/msg/camera_info.hpp"
-#include "builtin_interfaces/msg/time.hpp"
-#include "geometry_msgs/msg/pose_stamped.hpp"
 
 #include "cyberdog_tracking/transform.hpp"
 #include "cyberdog_tracking/common_type.hpp"
@@ -33,7 +29,6 @@
 
 namespace cyberdog_tracking
 {
-
 class ObjectTracking : public rclcpp::Node
 {
 public:
@@ -46,28 +41,28 @@ private:
   void CreateSub();
   void CreatePub();
 
-  void ProcessDepth(const sensor_msgs::msg::Image::SharedPtr msg, rclcpp::Logger logger);
-  void ProcessInfo(const sensor_msgs::msg::CameraInfo::SharedPtr msg, rclcpp::Logger logger);
+  void ProcessDepth(const SensorImageT::SharedPtr msg, rclcpp::Logger logger);
+  void ProcessInfo(const SensorCameraInfoT::SharedPtr msg, rclcpp::Logger logger);
   void ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger);
 
   void HandlerThread();
 
   void PubStatus(const uint8_t & status);
-  void PubPose(const std_msgs::msg::Header & header, const PersonInfo & tracked);
+  void PubPose(const StdHeaderT & header, const PersonInfo & tracked);
 
   float GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked);
   bool GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat);
 
 private:
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_;
+  rclcpp::Subscription<SensorImageT>::SharedPtr depth_sub_;
+  rclcpp::Subscription<SensorCameraInfoT>::SharedPtr info_sub_;
   rclcpp::Subscription<PersonT>::SharedPtr body_sub_;
 
-  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
+  rclcpp::Publisher<GeometryPoseStampedT>::SharedPtr pose_pub_;
   rclcpp::Publisher<TrackingStatusT>::SharedPtr status_pub_;
 
-  sensor_msgs::msg::CameraInfo camera_info_;
-  builtin_interfaces::msg::Time last_stamp_;
+  SensorCameraInfoT camera_info_;
+  BuiltinTimeT last_stamp_;
 
   Transform * trans_ptr_;
   DistanceFilter * filter_ptr_;

@@ -63,7 +63,7 @@ Transform::Transform(
 
 cv::Mat Transform::DepthToAi(
   const cv::Mat & depth_image,
-  const sensor_msgs::msg::CameraInfo & camera_info,
+  const SensorCameraInfoT & camera_info,
   const float & rows_scale, const float & cols_scale)
 {
   cv::Mat ai_image;
@@ -77,7 +77,7 @@ cv::Mat Transform::DepthToAi(
 
 cv::Mat Transform::RealsenseDepthToAi(
   const cv::Mat & depth_image,
-  const sensor_msgs::msg::CameraInfo & camera_info,
+  const SensorCameraInfoT & camera_info,
   const float & rows_scale, const float & cols_scale)
 {
   fx_ = camera_info.p[0];
@@ -124,7 +124,7 @@ cv::Mat Transform::RealsenseDepthToAi(
 }
 
 cv::Mat Transform::StereoDepthToAi(
-  const cv::Mat & depth_image, const sensor_msgs::msg::CameraInfo,
+  const cv::Mat & depth_image, const SensorCameraInfoT,
   const float & rows_scale, const float & cols_scale)
 {
   fx_ = 220;
