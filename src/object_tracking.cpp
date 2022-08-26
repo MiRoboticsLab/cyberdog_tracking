@@ -33,12 +33,54 @@ namespace cyberdog_tracking
 {
 
 ObjectTracking::ObjectTracking()
-: Node("object_tracking"),
+: nav2_util::LifecycleNode("object_tracking"),
   trans_ptr_(nullptr), filter_ptr_(nullptr),
-  uncorrect_count_(0), unfound_count_(0)
+  stereo_mode_(false), unfound_count_(0),
+  is_activate_(false)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+}
+
+nav2_util::CallbackReturn ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*state*/)
+{
+  RCLCPP_INFO(get_logger(), "Configuring vision_manager. ");
   Initialize();
+  return nav2_util::CallbackReturn::SUCCESS;
+}
+
+nav2_util::CallbackReturn ObjectTracking::on_activate(const rclcpp_lifecycle::State & /*state*/)
+{
+  RCLCPP_INFO(get_logger(), "Activating vision_manager. ");
+  is_activate_ = true;
+  pose_pub_->on_activate();
+  status_pub_->on_activate();
+  return nav2_util::CallbackReturn::SUCCESS;
+}
+
+nav2_util::CallbackReturn ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
+{
+  RCLCPP_INFO(get_logger(), "Deactivating vision_manager. ");
+  is_activate_ = false;
+  pose_pub_->on_deactivate();
+  status_pub_->on_deactivate();
+  return nav2_util::CallbackReturn::SUCCESS;
+}
+
+nav2_util::CallbackReturn ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
+{
+  RCLCPP_INFO(get_logger(), "Cleaning up vision_manager. ");
+  pose_pub_.reset();
+  status_pub_.reset();
+  depth_sub_.reset();
+  info_sub_.reset();
+  body_sub_.reset();
+  return nav2_util::CallbackReturn::SUCCESS;
+}
+
+nav2_util::CallbackReturn ObjectTracking::on_shutdown(const rclcpp_lifecycle::State & /*state*/)
+{
+  RCLCPP_INFO(get_logger(), "Shutting down vision_manager. ");
+  return nav2_util::CallbackReturn::SUCCESS;
 }
 
 void ObjectTracking::Initialize()
@@ -51,9 +93,9 @@ void ObjectTracking::Initialize()
   handler_thread_ = std::make_shared<std::thread>(&ObjectTracking::HandlerThread, this);
 
   // Set logger level
-  auto ret = rcutils_logging_set_logger_level(this->get_logger().get_name(), logger_level_);
+  auto ret = rcutils_logging_set_logger_level(get_logger().get_name(), logger_level_);
   if (ret != RCUTILS_RET_OK) {
-    RCLCPP_ERROR(this->get_logger(), "Error setting severity: %s", rcutils_get_error_string().str);
+    RCLCPP_ERROR(get_logger(), "Error setting severity: %s", rcutils_get_error_string().str);
     rcutils_reset_error();
   }
 }
@@ -74,20 +116,20 @@ void ObjectTracking::CreateObject()
   this->get_parameter<float>("remap_cols_scale", col_scale_);
   param_path_ = "/params/camera";
   if (access(param_path_.c_str(), 0) != 0) {
-    RCLCPP_WARN(this->get_logger(), "The factory preset calibration file does not exist. ");
+    RCLCPP_WARN(get_logger(), "The factory preset calibration file does not exist. ");
     this->get_parameter<std::string>("camera_ai_param", param_path_);
   }
-  RCLCPP_INFO(this->get_logger(), "Current calibration file path: %s", param_path_.c_str());
+  RCLCPP_INFO(get_logger(), "Current calibration file path: %s", param_path_.c_str());
 
   // Get extrinsics parameters through tf
-  RCLCPP_INFO(this->get_logger(), "Get extrinsics parameters.");
+  RCLCPP_INFO(get_logger(), "Get extrinsics parameters.");
   cv::Mat rot_depth_to_color, trans_depth_to_color;
   if (!GetExtrinsicsParam(rot_depth_to_color, trans_depth_to_color)) {
-    RCLCPP_ERROR(this->get_logger(), "Get external parameter fail, cannot align depth to color. ");
+    RCLCPP_ERROR(get_logger(), "Get external parameter fail, cannot align depth to color. ");
   }
 
   // Create object
-  RCLCPP_INFO(this->get_logger(), "Create object.");
+  RCLCPP_INFO(get_logger(), "Create object.");
   trans_ptr_ = new Transform(param_path_, rot_depth_to_color, trans_depth_to_color, stereo_mode_);
   filter_ptr_ = new DistanceFilter();
 }
@@ -98,18 +140,18 @@ void ObjectTracking::CreateSub()
   rclcpp::SensorDataQoS sub_qos;
   sub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   auto body_callback = [this](const PersonT::SharedPtr msg) {
-      ProcessBody(msg, this->get_logger());
+      ProcessBody(msg, get_logger());
     };
-  RCLCPP_INFO(this->get_logger(), "Subscribing to body detection topic. ");
+  RCLCPP_INFO(get_logger(), "Subscribing to body detection topic. ");
   body_sub_ = create_subscription<PersonT>("person", sub_qos, body_callback);
 
   // Subscribe depth image to process
   // rclcpp::SensorDataQoS depth_qos;
   // depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   auto depth_callback = [this](const SensorImageT::SharedPtr msg) {
-      ProcessDepth(msg, this->get_logger());
+      ProcessDepth(msg, get_logger());
     };
-  RCLCPP_INFO(this->get_logger(), "Subscribing to depth image topic. ");
+  RCLCPP_INFO(get_logger(), "Subscribing to depth image topic. ");
   depth_sub_ = create_subscription<SensorImageT>(
     "camera/depth/image_rect_raw",
     10, depth_callback);
@@ -118,9 +160,9 @@ void ObjectTracking::CreateSub()
   rclcpp::SensorDataQoS info_qos;
   info_qos.reliability(RMW_QOS_POLICY_RELIABILITY_SYSTEM_DEFAULT);
   auto info_callback = [this](const SensorCameraInfoT::SharedPtr msg) {
-      ProcessInfo(msg, this->get_logger());
+      ProcessInfo(msg, get_logger());
     };
-  RCLCPP_INFO(this->get_logger(), "Subscribing to depth camera info topic. ");
+  RCLCPP_INFO(get_logger(), "Subscribing to depth camera info topic. ");
   info_sub_ = create_subscription<SensorCameraInfoT>(
     "camera/depth/camera_info",
     info_qos, info_callback);
@@ -183,7 +225,7 @@ int FindNearest(const std::vector<StampedImage> & img_buffer, const StdHeaderT &
   }
   std::cout << std::endl;
   int position = -1;
-  float min_interval = 0.1;
+  float min_interval = 0.1f;
   for (size_t i = 0; i < img_buffer.size(); ++i) {
     float interval = CalInterval(img_buffer[i].header.stamp, header.stamp);
     if (interval < min_interval) {
@@ -213,6 +255,10 @@ sensor_msgs::msg::RegionOfInterest Convert2ROS(const cv::Rect & rect)
 
 void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger)
 {
+  if (!is_activate_) {
+    return;
+  }
+
   RCLCPP_INFO(
     logger, "Received detection result, ts %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
@@ -230,7 +276,7 @@ void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger lo
       std::unique_lock<std::mutex> lk(handler_.mtx);
       handler_.vecFrame.clear();
       handler_.vecFrame.push_back(tracked);
-      RCLCPP_INFO(this->get_logger(), "Tracking completed, activate cloud handler to cal pose. ");
+      RCLCPP_INFO(get_logger(), "Tracking completed, activate cloud handler to cal pose. ");
       handler_.cond.notify_one();
     }
   }
@@ -243,7 +289,7 @@ void ObjectTracking::HandlerThread()
     {
       std::unique_lock<std::mutex> lk(handler_.mtx);
       handler_.cond.wait(lk, [this] {return !handler_.vecFrame.empty();});
-      RCLCPP_INFO(this->get_logger(), "Cloud handler thread is active. ");
+      RCLCPP_INFO(get_logger(), "Cloud handler thread is active. ");
       bodies = handler_.vecFrame[0];
       handler_.vecFrame.clear();
     }
@@ -298,28 +344,12 @@ void ObjectTracking::PubStatus(const uint8_t & status)
 
 void ObjectTracking::PubPose(const StdHeaderT & header, const PersonInfo & tracked)
 {
+  RCLCPP_INFO(get_logger(), "To find depth and get pose according to stamped bbox. ");
   if (tracked.id.empty()) {
     return;
   }
 
-  // Find depth image according to timestamp
-  cv::Mat depth_image;
-  {
-    std::unique_lock<std::mutex> lk(depth_mtx_);
-    RCLCPP_DEBUG(
-      this->get_logger(), "===To find depth image according to bbox ts: %.9d.%.9d",
-      header.stamp.sec, header.stamp.nanosec);
-    int position = FindNearest(vec_stamped_depth_, header);
-    if (position >= 0) {
-      depth_image = vec_stamped_depth_[position].image.clone();
-      RCLCPP_INFO(
-        this->get_logger(), "===Find depth image ts:  %.9d.%.9d",
-        vec_stamped_depth_[position].header.stamp.sec,
-        vec_stamped_depth_[position].header.stamp.nanosec);
-    }
-  }
-
-  // Get body position and publish
+  // Get body position
   GeometryPoseStampedT pose_pub;
   pose_pub.header.stamp = header.stamp;
   pose_pub.header.frame_id = "camera_link";
@@ -327,80 +357,101 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const PersonInfo & track
   cv::Vec2d body_center = cv::Vec2d(
     tracked.bbox.x + tracked.bbox.width / 2.0,
     tracked.bbox.y + tracked.bbox.height / 2.0);
-  // Kalman predict with pre frame
+
   if (filter_ptr_->initialized_ && unfound_count_ < 10) {
+    // Get prediction with pre frame
     float delta = CalInterval(pose_pub.header.stamp, last_stamp_);
-    cv::Point3f posePredict = filter_ptr_->Predict(delta);
-    pose_pub.pose = Convert2ROS(posePredict);
+    cv::Point3f pose_predict = filter_ptr_->Predict(delta);
+    pose_pub.pose = Convert2ROS(pose_predict);
   }
 
-  cv::Mat ai_depth;
-  if (!depth_image.empty()) {
-    unfound_count_ = 0;
-    if (tracked.bbox.x > 25 && tracked.bbox.x + tracked.bbox.width < 615) {
-      RCLCPP_INFO(this->get_logger(), "Get distance according to cloud point. ");
-      double start = static_cast<double>(cv::getTickCount());
-      ai_depth = trans_ptr_->DepthToAi(depth_image, camera_info_, row_scale_, col_scale_);
-      double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
-      RCLCPP_DEBUG(this->get_logger(), "Cloud handler cost: %f ms", time * 1000);
-    } else {
-      RCLCPP_INFO(this->get_logger(), "Status OBJECT_EDGE.");
-      PubStatus(TrackingStatusT::OBJECT_EDGE);
-    }
-
-    // Get person position and publish
-    float distance = GetDistance(ai_depth, tracked.bbox);
-    std::cout << "###caldis: " << distance << std::endl;
-    GeometryPoseStampedT pose;
-    pose.header = pose_pub.header;
-    pose.pose.position = Dis2Position(distance, cam_param, body_center);
-    pose.pose.orientation.w = 1.0;
-
-    if (0.0 != distance) {
-      uncorrect_count_ = 0;
-      RCLCPP_INFO(this->get_logger(), "Get pose success, correct kf. ");
-      if (!filter_ptr_->initialized_) {
-        filter_ptr_->Init(Convert2CV(pose.pose.position));
-      } else {
-        cv::Point3f posePost = filter_ptr_->Correct(Convert2CV(pose.pose.position));
-        pose_pub.pose = Convert2ROS(posePost);
-      }
-    } else {
-      uncorrect_count_++;
-    }
-  } else {
-    RCLCPP_ERROR(this->get_logger(), "Cannot find depth image, cannot calculate pose. ");
-    unfound_count_++;
-    std::cout << "###caldis: null " << std::endl;
+  // Get measurement value and correct
+  float distance = GetDistance(header, tracked);
+  GeometryPoseStampedT pose;
+  pose.header = pose_pub.header;
+  pose.pose.position = Dis2Position(distance, cam_param, body_center);
+  pose.pose.orientation.w = 1.0;
+  if (0.0 != distance) {
+    RCLCPP_INFO(get_logger(), "Get pose success, correct kf. ");
+    cv::Point3f posePost = filter_ptr_->Correct(Convert2CV(pose.pose.position));
+    pose_pub.pose = Convert2ROS(posePost);
   }
 
+  // Publish position only valid
   if (filter_ptr_->initialized_ && unfound_count_ < 10) {
     pose_pub_->publish(pose_pub);
     last_stamp_ = pose_pub.header.stamp;
     RCLCPP_INFO(
-      this->get_logger(), "===Pose pub: %.5f, %.5f, %.5f",
+      get_logger(), "===Pose pub: %.5f, %.5f, %.5f",
       pose_pub.pose.position.x,
       pose_pub.pose.position.y,
       pose_pub.pose.position.z);
 
     double dis = sqrt(pow(pose_pub.pose.position.x, 2) + pow(pose_pub.pose.position.y, 2));
-    RCLCPP_INFO(this->get_logger(), "Straight line distance from person to dog: %f", dis);
+    RCLCPP_INFO(get_logger(), "Straight line distance from person to dog: %f", dis);
     if (dis > 3.0) {
-      RCLCPP_INFO(this->get_logger(), "Status OBJECT_FAR.");
+      RCLCPP_INFO(get_logger(), "Status OBJECT_FAR.");
       PubStatus(TrackingStatusT::OBJECT_FAR);
     } else if (dis < 0.8) {
-      RCLCPP_INFO(this->get_logger(), "Status OBJECT_NEAR.");
+      RCLCPP_INFO(get_logger(), "Status OBJECT_NEAR.");
       PubStatus(TrackingStatusT::OBJECT_NEAR);
     }
-    std::cout << "###pubpose: " << pose_pub.pose.position.x << std::endl;
+    std::cout << "###posepub: " << pose_pub.pose.position.x << std::endl;
   } else {
-    std::cout << "###pubpose: null " << std::endl;
+    std::cout << "###posepub: null " << std::endl;
   }
+}
+
+float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & tracked)
+{
+  // Find depth image according to timestamp
+  cv::Mat depth_image;
+  {
+    std::unique_lock<std::mutex> lk(depth_mtx_);
+    int position = FindNearest(vec_stamped_depth_, header);
+    if (position >= 0) {
+      depth_image = vec_stamped_depth_[position].image.clone();
+      RCLCPP_INFO(
+        get_logger(), "===Find depth image ts:  %.9d.%.9d",
+        vec_stamped_depth_[position].header.stamp.sec,
+        vec_stamped_depth_[position].header.stamp.nanosec);
+    }
+  }
+
+  // Align depth to ai and get distance
+  float distance = 0.f;
+  cv::Mat ai_depth;
+  if (!depth_image.empty()) {
+    unfound_count_ = 0;
+    if (tracked.bbox.x > 25 && tracked.bbox.x + tracked.bbox.width < 615) {
+      RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
+      double start = static_cast<double>(cv::getTickCount());
+      ai_depth = trans_ptr_->DepthToAi(depth_image, camera_info_, row_scale_, col_scale_);
+      double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
+      RCLCPP_DEBUG(get_logger(), "Cloud handler cost: %f ms", time * 1000);
+    } else {
+      RCLCPP_INFO(get_logger(), "Status OBJECT_EDGE.");
+      PubStatus(TrackingStatusT::OBJECT_EDGE);
+    }
+
+    // Get person position and publish
+    distance = GetDistance(ai_depth, tracked.bbox);
+    std::cout << "###discal: " << distance << std::endl;
+  } else {
+    RCLCPP_ERROR(get_logger(), "Cannot find depth image, cannot calculate pose. ");
+    unfound_count_++;
+    if (unfound_count_ >= 10) {
+      filter_ptr_->initialized_ = false;
+    }
+    std::cout << "###discal: null " << std::endl;
+  }
+
+  return distance;
 }
 
 float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked)
 {
-  float distance = 0.0;   // unit m
+  float distance = 0.f;   // unit m
 
   if (!image.empty()) {
     std::map<int, int> map_depth;
@@ -424,7 +475,7 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
       sum_count += it->second;
     }
     // std::cout << std::endl;
-    RCLCPP_DEBUG(this->get_logger(), "===sum_count: %d", sum_count);
+    RCLCPP_DEBUG(get_logger(), "===sum_count: %d", sum_count);
 
     int dis_sum = 0;
     int dis_count = 0;
@@ -452,7 +503,7 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
         last_value = it->first;
       }
     } else {
-      RCLCPP_ERROR(this->get_logger(), "Cloud point < 100 . ");
+      RCLCPP_ERROR(get_logger(), "Cloud point < 100 . ");
     }
   }
 
@@ -466,19 +517,19 @@ bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
   auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
   int i = 0;
   while (!is_success && i < 1) {
-    RCLCPP_INFO(this->get_logger(), "Try transform from depth to color times %d. ", i);
+    RCLCPP_INFO(get_logger(), "Try transform from depth to color times %d. ", i);
     try {
-      RCLCPP_INFO(this->get_logger(), "Lookup transform from depth to color. ");
+      RCLCPP_INFO(get_logger(), "Lookup transform from depth to color. ");
       geometry_msgs::msg::TransformStamped trans = tf_buffer->lookupTransform(
         "camera_color_optical_frame", "camera_depth_optical_frame", tf2::TimePointZero,
         tf2::durationFromSec(1));
-      RCLCPP_INFO(this->get_logger(), "Find transform from depth to color success. ");
+      RCLCPP_INFO(get_logger(), "Find transform from depth to color success. ");
       RCLCPP_INFO(
-        this->get_logger(), "Rotation: x - %.9f, y - %.9f, z - %.9f, w - %.9f. ",
+        get_logger(), "Rotation: x - %.9f, y - %.9f, z - %.9f, w - %.9f. ",
         trans.transform.rotation.x, trans.transform.rotation.y, trans.transform.rotation.z,
         trans.transform.rotation.w);
       RCLCPP_INFO(
-        this->get_logger(), "Translation: x - %.9f, y - %.9f, z - %.9f. ",
+        get_logger(), "Translation: x - %.9f, y - %.9f, z - %.9f. ",
         trans.transform.translation.x, trans.transform.translation.y,
         trans.transform.translation.z);
       tf2::Quaternion q(trans.transform.rotation.x, trans.transform.rotation.y,
@@ -494,9 +545,9 @@ bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
         trans.transform.translation.z);
       is_success = true;
     } catch (tf2::TransformException & ex) {
-      RCLCPP_WARN(this->get_logger(), "%s", ex.what());
+      RCLCPP_WARN(get_logger(), "%s", ex.what());
     } catch (...) {
-      RCLCPP_WARN(this->get_logger(), "Other exception in tf transform");
+      RCLCPP_WARN(get_logger(), "Other exception in tf transform");
     }
     i++;
   }

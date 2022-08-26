@@ -27,13 +27,22 @@
 #include "cyberdog_tracking/common_type.hpp"
 #include "cyberdog_tracking/distance_filter.hpp"
 
+#include "nav2_util/lifecycle_node.hpp"
+
 namespace cyberdog_tracking
 {
-class ObjectTracking : public rclcpp::Node
+class ObjectTracking : public nav2_util::LifecycleNode
 {
 public:
   ObjectTracking();
   virtual ~ObjectTracking();
+
+protected:
+  nav2_util::CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
+  nav2_util::CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override;
+  nav2_util::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override;
+  nav2_util::CallbackReturn on_cleanup(const rclcpp_lifecycle::State & state) override;
+  nav2_util::CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
 
 private:
   void Initialize();
@@ -50,6 +59,7 @@ private:
   void PubStatus(const uint8_t & status);
   void PubPose(const StdHeaderT & header, const PersonInfo & tracked);
 
+  float GetDistance(const StdHeaderT & header, const PersonInfo & tracked);
   float GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked);
   bool GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat);
 
@@ -58,8 +68,8 @@ private:
   rclcpp::Subscription<SensorCameraInfoT>::SharedPtr info_sub_;
   rclcpp::Subscription<PersonT>::SharedPtr body_sub_;
 
-  rclcpp::Publisher<GeometryPoseStampedT>::SharedPtr pose_pub_;
-  rclcpp::Publisher<TrackingStatusT>::SharedPtr status_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<GeometryPoseStampedT>::SharedPtr pose_pub_;
+  rclcpp_lifecycle::LifecyclePublisher<TrackingStatusT>::SharedPtr status_pub_;
 
   SensorCameraInfoT camera_info_;
   BuiltinTimeT last_stamp_;
@@ -79,10 +89,8 @@ private:
   int logger_level_;
   std::string param_path_;
 
-  int uncorrect_count_;
   int unfound_count_;
-
-  bool tracking_;
+  bool is_activate_;
 };
 
 }  // namespace cyberdog_tracking

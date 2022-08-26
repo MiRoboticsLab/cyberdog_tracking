@@ -47,6 +47,11 @@ cv::Point3f DistanceFilter::Predict(const float & delta)
 
 cv::Point3f DistanceFilter::Correct(const cv::Point3f & pose)
 {
+  if (!initialized_) {
+    Init(pose);
+    return pose;
+  }
+
   measurement_.at<float>(0) = pose.x;
   measurement_.at<float>(1) = pose.y;
   measurement_.at<float>(2) = pose.z;
