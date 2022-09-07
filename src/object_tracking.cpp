@@ -415,6 +415,8 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
         get_logger(), "===Find depth image ts:  %.9d.%.9d",
         vec_stamped_depth_[position].header.stamp.sec,
         vec_stamped_depth_[position].header.stamp.nanosec);
+    } else {
+      RCLCPP_ERROR(get_logger(), "Cannot find depth image, cannot calculate pose. ");
     }
   }
 
@@ -422,7 +424,6 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
   float distance = 0.f;
   cv::Mat ai_depth;
   if (!depth_image.empty()) {
-    unfound_count_ = 0;
     if (tracked.bbox.x > 25 && tracked.bbox.x + tracked.bbox.width < 615) {
       RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
@@ -436,14 +437,19 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
 
     // Get person position and publish
     distance = GetDistance(ai_depth, tracked.bbox);
+    if (0.0 != distance) {
+      unfound_count_ = 0;
+    } else {
+      unfound_count_++;
+    }
     std::cout << "###discal: " << distance << std::endl;
   } else {
-    RCLCPP_ERROR(get_logger(), "Cannot find depth image, cannot calculate pose. ");
     unfound_count_++;
-    if (unfound_count_ >= 10) {
-      filter_ptr_->initialized_ = false;
-    }
     std::cout << "###discal: null " << std::endl;
+  }
+
+  if (unfound_count_ >= 10) {
+    filter_ptr_->initialized_ = false;
   }
 
   return distance;
