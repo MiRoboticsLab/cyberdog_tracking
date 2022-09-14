@@ -33,7 +33,7 @@ namespace cyberdog_tracking
 {
 
 ObjectTracking::ObjectTracking()
-: nav2_util::LifecycleNode("object_tracking"),
+: rclcpp_lifecycle::LifecycleNode("object_tracking"),
   trans_ptr_(nullptr), filter_ptr_(nullptr),
   stereo_mode_(false), unfound_count_(0),
   is_activate_(false)
@@ -41,46 +41,46 @@ ObjectTracking::ObjectTracking()
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 }
 
-nav2_util::CallbackReturn ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*state*/)
+ReturnResult ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Configuring vision_manager. ");
+  RCLCPP_INFO(get_logger(), "Configuring tracking. ");
   Initialize();
-  return nav2_util::CallbackReturn::SUCCESS;
+  return ReturnResult::SUCCESS;
 }
 
-nav2_util::CallbackReturn ObjectTracking::on_activate(const rclcpp_lifecycle::State & /*state*/)
+ReturnResult ObjectTracking::on_activate(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Activating vision_manager. ");
+  RCLCPP_INFO(get_logger(), "Activating tracking. ");
   is_activate_ = true;
   pose_pub_->on_activate();
   status_pub_->on_activate();
-  return nav2_util::CallbackReturn::SUCCESS;
+  return ReturnResult::SUCCESS;
 }
 
-nav2_util::CallbackReturn ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
+ReturnResult ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Deactivating vision_manager. ");
+  RCLCPP_INFO(get_logger(), "Deactivating tracking. ");
   is_activate_ = false;
   pose_pub_->on_deactivate();
   status_pub_->on_deactivate();
-  return nav2_util::CallbackReturn::SUCCESS;
+  return ReturnResult::SUCCESS;
 }
 
-nav2_util::CallbackReturn ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
+ReturnResult ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Cleaning up vision_manager. ");
+  RCLCPP_INFO(get_logger(), "Cleaning up tracking. ");
   pose_pub_.reset();
   status_pub_.reset();
   depth_sub_.reset();
   info_sub_.reset();
   body_sub_.reset();
-  return nav2_util::CallbackReturn::SUCCESS;
+  return ReturnResult::SUCCESS;
 }
 
-nav2_util::CallbackReturn ObjectTracking::on_shutdown(const rclcpp_lifecycle::State & /*state*/)
+ReturnResult ObjectTracking::on_shutdown(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Shutting down vision_manager. ");
-  return nav2_util::CallbackReturn::SUCCESS;
+  RCLCPP_INFO(get_logger(), "Shutting down tracking. ");
+  return ReturnResult::SUCCESS;
 }
 
 void ObjectTracking::Initialize()

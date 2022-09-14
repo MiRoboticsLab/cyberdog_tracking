@@ -22,27 +22,28 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
+#include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 
 #include "cyberdog_tracking/transform.hpp"
 #include "cyberdog_tracking/common_type.hpp"
 #include "cyberdog_tracking/distance_filter.hpp"
 
-#include "nav2_util/lifecycle_node.hpp"
-
+using ReturnResult = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 namespace cyberdog_tracking
 {
-class ObjectTracking : public nav2_util::LifecycleNode
+class ObjectTracking : public rclcpp_lifecycle::LifecycleNode
 {
 public:
   ObjectTracking();
   virtual ~ObjectTracking();
 
 protected:
-  nav2_util::CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
-  nav2_util::CallbackReturn on_activate(const rclcpp_lifecycle::State & state) override;
-  nav2_util::CallbackReturn on_deactivate(const rclcpp_lifecycle::State & state) override;
-  nav2_util::CallbackReturn on_cleanup(const rclcpp_lifecycle::State & state) override;
-  nav2_util::CallbackReturn on_shutdown(const rclcpp_lifecycle::State & state) override;
+  ReturnResult on_configure(const rclcpp_lifecycle::State & state) override;
+  ReturnResult on_activate(const rclcpp_lifecycle::State & state) override;
+  ReturnResult on_deactivate(const rclcpp_lifecycle::State & state) override;
+  ReturnResult on_cleanup(const rclcpp_lifecycle::State & state) override;
+  ReturnResult on_shutdown(const rclcpp_lifecycle::State & state) override;
 
 private:
   void Initialize();

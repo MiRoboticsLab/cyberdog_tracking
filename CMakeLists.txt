@@ -16,8 +16,8 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 find_package(protocol REQUIRED)
-find_package(nav2_util REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -46,8 +46,8 @@ ament_target_dependencies(cyberdog_tracking
   geometry_msgs
   cv_bridge
   tf2_ros
+  rclcpp_lifecycle
   protocol
-  nav2_util
   OpenCV
 )
 
