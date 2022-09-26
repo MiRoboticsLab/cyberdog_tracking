@@ -427,7 +427,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
     if (tracked.bbox.x > 25 && tracked.bbox.x + tracked.bbox.width < 615) {
       RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
-      ai_depth = trans_ptr_->DepthToAi(depth_image, camera_info_, row_scale_, col_scale_);
+      ai_depth = trans_ptr_->DepthToAi(depth_image.clone(), camera_info_, row_scale_, col_scale_);
       double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
       RCLCPP_DEBUG(get_logger(), "Cloud handler cost: %f ms", time * 1000);
     } else {
@@ -436,7 +436,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
     }
 
     // Get person position and publish
-    distance = GetDistance(ai_depth, tracked.bbox);
+    distance = GetDistance(ai_depth.clone(), tracked.bbox);
     if (0.0 != distance) {
       unfound_count_ = 0;
     } else {

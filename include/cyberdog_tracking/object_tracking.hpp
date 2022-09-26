@@ -29,9 +29,10 @@
 #include "cyberdog_tracking/common_type.hpp"
 #include "cyberdog_tracking/distance_filter.hpp"
 
-using ReturnResult = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
 namespace cyberdog_tracking
 {
+using ReturnResult = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
 class ObjectTracking : public rclcpp_lifecycle::LifecycleNode
 {
 public:
