@@ -59,9 +59,9 @@ private:
   void HandlerThread();
 
   void PubStatus(const uint8_t & status);
-  void PubPose(const StdHeaderT & header, const PersonInfo & tracked);
+  void PubPose(const StdHeaderT & header, const cv::Rect & tracked);
 
-  float GetDistance(const StdHeaderT & header, const PersonInfo & tracked);
+  float GetDistance(const StdHeaderT & header, const cv::Rect & tracked);
   float GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked);
   bool GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat);
 

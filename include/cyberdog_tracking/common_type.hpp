@@ -55,16 +55,6 @@ using TrackingStatusT = protocol::msg::TrackingStatus;
 using BodyRegionT = protocol::srv::BodyRegion;
 using CameraServiceT = protocol::srv::CameraService;
 
-struct PersonInfo
-{
-  cv::Rect bbox;
-  std::string id;
-  PersonInfo()
-  : id("") {}
-  explicit PersonInfo(const cv::Rect & bbox_, const std::string & id_ = "")
-  : bbox(bbox_), id(id_) {}
-};
-
 struct StampedImage
 {
   StdHeaderT header;
@@ -74,7 +64,7 @@ struct StampedImage
 struct StampedBbox
 {
   StdHeaderT header;
-  std::vector<PersonInfo> vecInfo;
+  std::vector<cv::Rect> vecInfo;
 };
 
 struct HandlerStruct

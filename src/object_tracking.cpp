@@ -265,20 +265,15 @@ void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger lo
   RCLCPP_INFO(logger, "Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
-  std::vector<PersonInfo> bbox_det;
-  for (size_t i = 0; i < msg->body_info.count; ++i) {
-    cv::Rect bbox = Convert2CV(msg->body_info.infos[i].roi);
-    PersonInfo info(bbox, msg->body_info.infos[i].reid);
-    bbox_det.push_back(info);
-    if (!msg->body_info.infos[i].reid.empty()) {
-      tracked.vecInfo.push_back(info);
-      tracked.header = msg->header;
-      std::unique_lock<std::mutex> lk(handler_.mtx);
-      handler_.vecFrame.clear();
-      handler_.vecFrame.push_back(tracked);
-      RCLCPP_INFO(get_logger(), "Tracking completed, activate cloud handler to cal pose. ");
-      handler_.cond.notify_one();
-    }
+  if (0 != msg->track_res.roi.width && 0 != msg->track_res.roi.height) {
+    cv::Rect bbox = Convert2CV(msg->track_res.roi);
+    tracked.header = msg->header;
+    tracked.vecInfo.push_back(bbox);
+    std::unique_lock<std::mutex> lk(handler_.mtx);
+    handler_.vecFrame.clear();
+    handler_.vecFrame.push_back(tracked);
+    RCLCPP_INFO(get_logger(), "Tracking completed, activate cloud handler to cal pose. ");
+    handler_.cond.notify_one();
   }
 }
 
@@ -294,16 +289,8 @@ void ObjectTracking::HandlerThread()
       handler_.vecFrame.clear();
     }
 
-    // Save and find tracking result according to reid
-    PersonInfo person_tracked;
-    for (size_t i = 0; i < bodies.vecInfo.size(); ++i) {
-      if (!bodies.vecInfo[i].id.empty()) {
-        person_tracked = bodies.vecInfo[i];
-      }
-    }
-
     // Get pose of tracked bbox and pub
-    PubPose(bodies.header, person_tracked);
+    PubPose(bodies.header, bodies.vecInfo[0]);
   }
 }
 
@@ -342,12 +329,9 @@ void ObjectTracking::PubStatus(const uint8_t & status)
   status_pub_->publish(TrackingStatusT);
 }
 
-void ObjectTracking::PubPose(const StdHeaderT & header, const PersonInfo & tracked)
+void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked)
 {
   RCLCPP_INFO(get_logger(), "To find depth and get pose according to stamped bbox. ");
-  if (tracked.id.empty()) {
-    return;
-  }
 
   // Get body position
   GeometryPoseStampedT pose_pub;
@@ -355,8 +339,8 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const PersonInfo & track
   pose_pub.header.frame_id = "camera_link";
   cv::Mat cam_param = trans_ptr_->ai_camera_param_;
   cv::Vec2d body_center = cv::Vec2d(
-    tracked.bbox.x + tracked.bbox.width / 2.0,
-    tracked.bbox.y + tracked.bbox.height / 2.0);
+    tracked.x + tracked.width / 2.0,
+    tracked.y + tracked.height / 2.0);
 
   if (filter_ptr_->initialized_ && unfound_count_ < 10) {
     // Get prediction with pre frame
@@ -402,7 +386,7 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const PersonInfo & track
   }
 }
 
-float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & tracked)
+float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tracked)
 {
   // Find depth image according to timestamp
   cv::Mat depth_image;
@@ -424,7 +408,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
   float distance = 0.f;
   cv::Mat ai_depth;
   if (!depth_image.empty()) {
-    if (tracked.bbox.x > 25 && tracked.bbox.x + tracked.bbox.width < 615) {
+    if (tracked.x > 25 && tracked.x + tracked.width < 615) {
       RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
       ai_depth = trans_ptr_->DepthToAi(depth_image.clone(), camera_info_, row_scale_, col_scale_);
@@ -436,7 +420,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const PersonInfo & 
     }
 
     // Get person position and publish
-    distance = GetDistance(ai_depth.clone(), tracked.bbox);
+    distance = GetDistance(ai_depth.clone(), tracked);
     if (0.0 != distance) {
       unfound_count_ = 0;
     } else {
