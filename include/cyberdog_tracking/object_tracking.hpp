@@ -65,6 +65,8 @@ private:
   float GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked);
   bool GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat);
 
+  void WakeThread();
+
 private:
   rclcpp::Subscription<SensorImageT>::SharedPtr depth_sub_;
   rclcpp::Subscription<SensorCameraInfoT>::SharedPtr info_sub_;

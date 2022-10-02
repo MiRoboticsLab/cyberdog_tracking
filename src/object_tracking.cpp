@@ -52,6 +52,8 @@ ReturnResult ObjectTracking::on_activate(const rclcpp_lifecycle::State & /*state
 {
   RCLCPP_INFO(get_logger(), "Activating tracking. ");
   is_activate_ = true;
+  // Create process thread
+  handler_thread_ = std::make_shared<std::thread>(&ObjectTracking::HandlerThread, this);
   pose_pub_->on_activate();
   status_pub_->on_activate();
   return ReturnResult::SUCCESS;
@@ -61,6 +63,10 @@ ReturnResult ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*sta
 {
   RCLCPP_INFO(get_logger(), "Deactivating tracking. ");
   is_activate_ = false;
+  WakeThread();
+  if (handler_thread_->joinable()) {
+    handler_thread_->join();
+  }
   pose_pub_->on_deactivate();
   status_pub_->on_deactivate();
   return ReturnResult::SUCCESS;
@@ -69,6 +75,7 @@ ReturnResult ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*sta
 ReturnResult ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Cleaning up tracking. ");
+  handler_thread_.reset();
   pose_pub_.reset();
   status_pub_.reset();
   depth_sub_.reset();
@@ -88,9 +95,6 @@ void ObjectTracking::Initialize()
   CreateObject();
   CreateSub();
   CreatePub();
-
-  // Create process thread
-  handler_thread_ = std::make_shared<std::thread>(&ObjectTracking::HandlerThread, this);
 
   // Set logger level
   auto ret = rcutils_logging_set_logger_level(get_logger().get_name(), logger_level_);
@@ -181,6 +185,10 @@ void ObjectTracking::ProcessDepth(
   const SensorImageT::SharedPtr msg,
   rclcpp::Logger logger)
 {
+  if (!is_activate_) {
+    return;
+  }
+
   RCLCPP_INFO(
     logger, "Received depth image, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
@@ -200,6 +208,10 @@ void ObjectTracking::ProcessInfo(
   const SensorCameraInfoT::SharedPtr msg,
   rclcpp::Logger logger)
 {
+  if (!is_activate_) {
+    return;
+  }
+
   RCLCPP_INFO(
     logger, "Received depth camera info msg, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
@@ -287,6 +299,9 @@ void ObjectTracking::HandlerThread()
       RCLCPP_INFO(get_logger(), "Cloud handler thread is active. ");
       bodies = handler_.vecFrame[0];
       handler_.vecFrame.clear();
+    }
+    if (!is_activate_) {
+      return;
     }
 
     // Get pose of tracked bbox and pub
@@ -544,6 +559,15 @@ bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
   return is_success;
 }
 
+void ObjectTracking::WakeThread()
+{
+  StampedBbox tracked;
+  std::unique_lock<std::mutex> lk(handler_.mtx);
+  handler_.vecFrame.clear();
+  handler_.vecFrame.push_back(tracked);
+  handler_.cond.notify_one();
+}
+
 ObjectTracking::~ObjectTracking()
 {
   if (trans_ptr_ != nullptr) {
@@ -554,6 +578,7 @@ ObjectTracking::~ObjectTracking()
     delete filter_ptr_;
   }
 
+  WakeThread();
   if (handler_thread_->joinable()) {
     handler_thread_->join();
   }
