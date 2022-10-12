@@ -32,13 +32,12 @@ def generate_launch_description():
             executable='cyberdog_tracking',
             namespace=namespace,
             name='tracking',
-            parameters=[{'logger_level': 0,
-                         'stereo_mode': False,
+            parameters=[{'stereo_mode': False,
                          'remap_rows_scale': 0.5,
                          'remap_cols_scale': 1.0,
                          'camera_ai_param': param_path}],
+            arguments=['--ros-args', '--log-level', 'INFO'],
             remappings=None,
-            arguments=None,
             output='screen',
         )
     ])

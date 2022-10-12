@@ -39,6 +39,10 @@ ObjectTracking::ObjectTracking()
   is_activate_(false)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+  this->declare_parameter("stereo_mode", false);
+  this->declare_parameter("remap_rows_scale", 1.0);
+  this->declare_parameter("remap_cols_scale", 1.0);
+  this->declare_parameter("camera_ai_param", "./config/camera_AI.yaml");
 }
 
 ReturnResult ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*state*/)
@@ -95,26 +99,11 @@ void ObjectTracking::Initialize()
   CreateObject();
   CreateSub();
   CreatePub();
-
-  // Set logger level
-  auto ret = rcutils_logging_set_logger_level(get_logger().get_name(), logger_level_);
-  if (ret != RCUTILS_RET_OK) {
-    RCLCPP_ERROR(get_logger(), "Error setting severity: %s", rcutils_get_error_string().str);
-    rcutils_reset_error();
-  }
 }
 
 void ObjectTracking::CreateObject()
 {
-  // Declare parameter
-  this->declare_parameter("logger_level", 20);
-  this->declare_parameter("stereo_mode", false);
-  this->declare_parameter("remap_rows_scale", 1.0);
-  this->declare_parameter("remap_cols_scale", 1.0);
-  this->declare_parameter("camera_ai_param", "./config/camera_AI.yaml");
-
   // Get parameter
-  this->get_parameter<int>("logger_level", logger_level_);
   this->get_parameter<bool>("stereo_mode", stereo_mode_);
   this->get_parameter<float>("remap_rows_scale", row_scale_);
   this->get_parameter<float>("remap_cols_scale", col_scale_);
@@ -230,12 +219,6 @@ float CalInterval(const BuiltinTimeT & stamp1, const BuiltinTimeT & stamp2)
 
 int FindNearest(const std::vector<StampedImage> & img_buffer, const StdHeaderT & header)
 {
-  std::cout << "tofind stamp: " << header.stamp.sec << ", " << header.stamp.nanosec << std::endl;
-  std::cout << "depth img stamp: " << std::endl;
-  for (auto & img : img_buffer) {
-    std::cout << img.header.stamp.sec << ", " << img.header.stamp.nanosec << ";";
-  }
-  std::cout << std::endl;
   int position = -1;
   float min_interval = 0.1f;
   for (size_t i = 0; i < img_buffer.size(); ++i) {
@@ -480,7 +463,7 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
       sum_count += it->second;
     }
     // std::cout << std::endl;
-    RCLCPP_DEBUG(get_logger(), "===sum_count: %d", sum_count);
+    RCLCPP_INFO(get_logger(), "===sum_count: %d", sum_count);
 
     int dis_sum = 0;
     int dis_count = 0;
