@@ -405,7 +405,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
 
   // Align depth to ai and get distance
   float distance = 0.f;
-  cv::Mat ai_depth = cepth_image.clone();
+  cv::Mat ai_depth = depth_image.clone();
   if (!depth_image.empty()) {
     if (tracked.x > 25 && tracked.x + tracked.width < 615) {
       RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
