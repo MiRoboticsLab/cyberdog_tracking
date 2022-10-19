@@ -146,7 +146,7 @@ void ObjectTracking::CreateSub()
     };
   RCLCPP_INFO(get_logger(), "Subscribing to depth image topic. ");
   depth_sub_ = create_subscription<SensorImageT>(
-    "camera/depth/image_rect_raw",
+    "camera/aligned_depth_to_extcolor/image_raw",
     10, depth_callback);
 
   // Subscribe realsense depth camera info
@@ -182,7 +182,8 @@ void ObjectTracking::ProcessDepth(
     logger, "Received depth image, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
 
-  cv_bridge::CvImagePtr depth_ptr = cv_bridge::toCvCopy(msg);
+  cv_bridge::CvImagePtr depth_ptr = cv_bridge::toCvCopy(
+    msg, sensor_msgs::image_encodings::TYPE_16UC1);
   StampedImage stamped_img;
   stamped_img.header = msg->header;
   stamped_img.image = depth_ptr->image.clone();
@@ -404,12 +405,12 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
 
   // Align depth to ai and get distance
   float distance = 0.f;
-  cv::Mat ai_depth;
+  cv::Mat ai_depth = cepth_image.clone();
   if (!depth_image.empty()) {
     if (tracked.x > 25 && tracked.x + tracked.width < 615) {
       RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
-      ai_depth = trans_ptr_->DepthToAi(depth_image.clone(), camera_info_, row_scale_, col_scale_);
+      // ai_depth = trans_ptr_->DepthToAi(depth_image.clone(), camera_info_, row_scale_, col_scale_);
       double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
       RCLCPP_DEBUG(get_logger(), "Cloud handler cost: %f ms", time * 1000);
     } else {
@@ -445,8 +446,8 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
     std::map<int, int> map_depth;
     for (size_t i = body_tracked.x; i < body_tracked.x + body_tracked.width; ++i) {
       for (size_t j = body_tracked.y; j < body_tracked.y + body_tracked.height; ++j) {
-        if (0.0 != image.at<double>(j, i)) {
-          int val = floor(image.at<double>(j, i) * 10.0);
+        if (0.0 != image.at<ushort>(j, i)) {
+          int val = floor(image.at<ushort>(j, i) / 100.0);
           std::map<int, int>::iterator iter = map_depth.find(val);
           if (iter != map_depth.end()) {
             iter->second++;
