@@ -25,7 +25,6 @@
 #include "rclcpp_lifecycle/lifecycle_node.hpp"
 #include "rclcpp_lifecycle/lifecycle_publisher.hpp"
 
-#include "cyberdog_tracking/transform.hpp"
 #include "cyberdog_tracking/common_type.hpp"
 #include "cyberdog_tracking/distance_filter.hpp"
 
@@ -53,7 +52,6 @@ private:
   void CreatePub();
 
   void ProcessDepth(const SensorImageT::SharedPtr msg, rclcpp::Logger logger);
-  void ProcessInfo(const SensorCameraInfoT::SharedPtr msg, rclcpp::Logger logger);
   void ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger);
 
   void HandlerThread();
@@ -63,9 +61,9 @@ private:
 
   float GetDistance(const StdHeaderT & header, const cv::Rect & tracked);
   float GetDistance(const cv::Mat & image, const cv::Rect2d & body_tracked);
-  bool GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat);
 
   void WakeThread();
+  void LoadCameraParam();
 
 private:
   rclcpp::Subscription<SensorImageT>::SharedPtr depth_sub_;
@@ -78,7 +76,6 @@ private:
   SensorCameraInfoT camera_info_;
   BuiltinTimeT last_stamp_;
 
-  Transform * trans_ptr_;
   DistanceFilter * filter_ptr_;
 
   HandlerStruct handler_;
@@ -87,14 +84,13 @@ private:
   std::mutex depth_mtx_;
   std::vector<StampedImage> vec_stamped_depth_;
 
-  bool stereo_mode_;
-  float row_scale_;
-  float col_scale_;
-  int logger_level_;
-  std::string param_path_;
-
   int unfound_count_;
   bool is_activate_;
+
+  std::string ai_param_path_;
+  std::vector<float> ai_intrinsics_;
+  int img_width_;
+  int img_height_;
 };
 
 }  // namespace cyberdog_tracking

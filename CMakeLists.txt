@@ -19,6 +19,7 @@ find_package(tf2_ros REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(protocol REQUIRED)
 find_package(OpenCV 4 REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
@@ -35,7 +36,6 @@ endif()
 
 add_executable(cyberdog_tracking
   src/main.cpp
-  src/transform.cpp
   src/distance_filter.cpp
   src/object_tracking.cpp
 )
@@ -50,6 +50,7 @@ ament_target_dependencies(cyberdog_tracking
   protocol
   OpenCV
 )
+target_link_libraries(cyberdog_tracking yaml-cpp)
 
 add_executable(sub
   src/subscribe.cpp
