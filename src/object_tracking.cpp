@@ -15,6 +15,7 @@
 #include "cyberdog_tracking/object_tracking.hpp"
 
 #include <unistd.h>
+#include <yaml-cpp/yaml.h>
 
 #include <map>
 #include <utility>
@@ -29,26 +30,26 @@
 #include "tf2/LinearMath/Transform.h"
 #include "rcutils/error_handling.h"
 
+const int kBoundaryTh = 25;
+const std::string kCailbrateParam = "/SDCARD/calibrate_result/params_intrinsic.yaml";
+
 namespace cyberdog_tracking
 {
 
 ObjectTracking::ObjectTracking()
 : rclcpp_lifecycle::LifecycleNode("object_tracking"),
-  trans_ptr_(nullptr), filter_ptr_(nullptr),
-  stereo_mode_(false), unfound_count_(0),
+  filter_ptr_(nullptr), unfound_count_(0),
   is_activate_(false)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
-  this->declare_parameter("stereo_mode", false);
-  this->declare_parameter("remap_rows_scale", 1.0);
-  this->declare_parameter("remap_cols_scale", 1.0);
-  this->declare_parameter("camera_ai_param", "./config/camera_AI.yaml");
+  this->declare_parameter("ai_intrinsic", "./config/params_intrinsic.yaml");
 }
 
 ReturnResult ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*state*/)
 {
   RCLCPP_INFO(get_logger(), "Configuring tracking. ");
   Initialize();
+  LoadCameraParam();
   return ReturnResult::SUCCESS;
 }
 
@@ -104,26 +105,11 @@ void ObjectTracking::Initialize()
 void ObjectTracking::CreateObject()
 {
   // Get parameter
-  this->get_parameter<bool>("stereo_mode", stereo_mode_);
-  this->get_parameter<float>("remap_rows_scale", row_scale_);
-  this->get_parameter<float>("remap_cols_scale", col_scale_);
-  param_path_ = "/params/camera";
-  if (access(param_path_.c_str(), 0) != 0) {
-    RCLCPP_WARN(get_logger(), "The factory preset calibration file does not exist. ");
-    this->get_parameter<std::string>("camera_ai_param", param_path_);
-  }
-  RCLCPP_INFO(get_logger(), "Current calibration file path: %s", param_path_.c_str());
-
-  // Get extrinsics parameters through tf
-  RCLCPP_INFO(get_logger(), "Get extrinsics parameters.");
-  cv::Mat rot_depth_to_color, trans_depth_to_color;
-  if (!GetExtrinsicsParam(rot_depth_to_color, trans_depth_to_color)) {
-    RCLCPP_ERROR(get_logger(), "Get external parameter fail, cannot align depth to color. ");
-  }
+  this->get_parameter<std::string>("ai_intrinsic", ai_param_path_);
+  ai_param_path_ += "/params_intrinsic.yaml";
 
   // Create object
   RCLCPP_INFO(get_logger(), "Create object.");
-  trans_ptr_ = new Transform(param_path_, rot_depth_to_color, trans_depth_to_color, stereo_mode_);
   filter_ptr_ = new DistanceFilter();
 }
 
@@ -139,8 +125,6 @@ void ObjectTracking::CreateSub()
   body_sub_ = create_subscription<PersonT>("person", sub_qos, body_callback);
 
   // Subscribe depth image to process
-  // rclcpp::SensorDataQoS depth_qos;
-  // depth_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   auto depth_callback = [this](const SensorImageT::SharedPtr msg) {
       ProcessDepth(msg, get_logger());
     };
@@ -148,17 +132,6 @@ void ObjectTracking::CreateSub()
   depth_sub_ = create_subscription<SensorImageT>(
     "camera/aligned_depth_to_extcolor/image_raw",
     10, depth_callback);
-
-  // Subscribe realsense depth camera info
-  rclcpp::SensorDataQoS info_qos;
-  info_qos.reliability(RMW_QOS_POLICY_RELIABILITY_SYSTEM_DEFAULT);
-  auto info_callback = [this](const SensorCameraInfoT::SharedPtr msg) {
-      ProcessInfo(msg, get_logger());
-    };
-  RCLCPP_INFO(get_logger(), "Subscribing to depth camera info topic. ");
-  info_sub_ = create_subscription<SensorCameraInfoT>(
-    "camera/depth/camera_info",
-    info_qos, info_callback);
 }
 
 void ObjectTracking::CreatePub()
@@ -192,21 +165,6 @@ void ObjectTracking::ProcessDepth(
     vec_stamped_depth_.erase(vec_stamped_depth_.begin());
   }
   vec_stamped_depth_.push_back(stamped_img);
-}
-
-void ObjectTracking::ProcessInfo(
-  const SensorCameraInfoT::SharedPtr msg,
-  rclcpp::Logger logger)
-{
-  if (!is_activate_) {
-    return;
-  }
-
-  RCLCPP_INFO(
-    logger, "Received depth camera info msg, ts: %.9d.%.9d", msg->header.stamp.sec,
-    msg->header.stamp.nanosec);
-  camera_info_ = *msg;
-  info_sub_ = nullptr;
 }
 
 float CalInterval(const BuiltinTimeT & stamp1, const BuiltinTimeT & stamp2)
@@ -303,15 +261,15 @@ GeometryPoseT Convert2ROS(const cv::Point3f & from)
 }
 
 GeometryPointT Dis2Position(
-  float & distance, const cv::Mat & cam_param,
+  float & distance, const std::vector<float> & cam_param,
   const cv::Vec2d & center)
 {
   GeometryPointT position;
   position.x = distance;
   position.y = -distance *
-    (center[0] - cam_param.at<double>(0, 2)) / cam_param.at<double>(0, 0);
+    (center[0] - cam_param[2]) / cam_param[0];
   position.z = -distance *
-    (center[1] - cam_param.at<double>(1, 2)) / cam_param.at<double>(1, 1);
+    (center[1] - cam_param[3]) / cam_param[1];
   return position;
 }
 
@@ -336,7 +294,6 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
   GeometryPoseStampedT pose_pub;
   pose_pub.header.stamp = header.stamp;
   pose_pub.header.frame_id = "camera_link";
-  cv::Mat cam_param = trans_ptr_->ai_camera_param_;
   cv::Vec2d body_center = cv::Vec2d(
     tracked.x + tracked.width / 2.0,
     tracked.y + tracked.height / 2.0);
@@ -352,7 +309,7 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
   float distance = GetDistance(header, tracked);
   GeometryPoseStampedT pose;
   pose.header = pose_pub.header;
-  pose.pose.position = Dis2Position(distance, cam_param, body_center);
+  pose.pose.position = Dis2Position(distance, ai_intrinsics_, body_center);
   pose.pose.orientation.w = 1.0;
   if (0.0 != distance) {
     RCLCPP_INFO(get_logger(), "Get pose success, correct kf. ");
@@ -407,10 +364,9 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
   float distance = 0.f;
   cv::Mat ai_depth = depth_image.clone();
   if (!depth_image.empty()) {
-    if (tracked.x > 25 && tracked.x + tracked.width < 615) {
+    if (tracked.x > kBoundaryTh && tracked.x + tracked.width < (img_width_ - kBoundaryTh)) {
       RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
-      // ai_depth = trans_ptr_->DepthToAi(depth_image.clone(), camera_info_, row_scale_, col_scale_);
       double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
       RCLCPP_DEBUG(get_logger(), "Cloud handler cost: %f ms", time * 1000);
     } else {
@@ -499,50 +455,6 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
   return distance;
 }
 
-bool ObjectTracking::GetExtrinsicsParam(cv::Mat & rot_mat, cv::Mat & trans_mat)
-{
-  bool is_success = false;
-  auto tf_buffer = std::make_shared<tf2_ros::Buffer>(get_clock());
-  auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
-  int i = 0;
-  while (!is_success && i < 1) {
-    RCLCPP_INFO(get_logger(), "Try transform from depth to color times %d. ", i);
-    try {
-      RCLCPP_INFO(get_logger(), "Lookup transform from depth to color. ");
-      geometry_msgs::msg::TransformStamped trans = tf_buffer->lookupTransform(
-        "camera_color_optical_frame", "camera_depth_optical_frame", tf2::TimePointZero,
-        tf2::durationFromSec(1));
-      RCLCPP_INFO(get_logger(), "Find transform from depth to color success. ");
-      RCLCPP_INFO(
-        get_logger(), "Rotation: x - %.9f, y - %.9f, z - %.9f, w - %.9f. ",
-        trans.transform.rotation.x, trans.transform.rotation.y, trans.transform.rotation.z,
-        trans.transform.rotation.w);
-      RCLCPP_INFO(
-        get_logger(), "Translation: x - %.9f, y - %.9f, z - %.9f. ",
-        trans.transform.translation.x, trans.transform.translation.y,
-        trans.transform.translation.z);
-      tf2::Quaternion q(trans.transform.rotation.x, trans.transform.rotation.y,
-        trans.transform.rotation.z, trans.transform.rotation.w);
-      tf2::Matrix3x3 matrix;
-      matrix.setRotation(q);
-
-      rot_mat =
-        (cv::Mat_<double>(3, 3) << matrix[0][0], matrix[0][1], matrix[0][2], matrix[1][0],
-        matrix[1][1], matrix[1][2], matrix[2][0], matrix[2][1], matrix[2][2]);
-      trans_mat =
-        (cv::Mat_<double>(3, 1) << trans.transform.translation.x, trans.transform.translation.y,
-        trans.transform.translation.z);
-      is_success = true;
-    } catch (tf2::TransformException & ex) {
-      RCLCPP_WARN(get_logger(), "%s", ex.what());
-    } catch (...) {
-      RCLCPP_WARN(get_logger(), "Other exception in tf transform");
-    }
-    i++;
-  }
-  return is_success;
-}
-
 void ObjectTracking::WakeThread()
 {
   StampedBbox tracked;
@@ -552,12 +464,31 @@ void ObjectTracking::WakeThread()
   handler_.cond.notify_one();
 }
 
-ObjectTracking::~ObjectTracking()
+void ObjectTracking::LoadCameraParam()
 {
-  if (trans_ptr_ != nullptr) {
-    delete trans_ptr_;
+  YAML::Node param;
+  try {
+    param = YAML::LoadFile(kCailbrateParam);
+    ai_intrinsics_ = param["cam3"]["intrinsics"].as<std::vector<float>>();
+    if (ai_intrinsics_.size() != 4) {
+      RCLCPP_ERROR(get_logger(), "Non-pinhole model, use default param. ");
+      param = YAML::LoadFile(ai_param_path_);
+      ai_intrinsics_.clear();
+      ai_intrinsics_ = param["cam3"]["intrinsics"].as<std::vector<float>>();
+    }
+  } catch (...) {
+    RCLCPP_ERROR(get_logger(), "Load param fail, use default param. ");
+    param = YAML::LoadFile(ai_param_path_);
+    ai_intrinsics_ = param["cam3"]["intrinsics"].as<std::vector<float>>();
   }
 
+  std::vector<int> img_size = param["cam3"]["resolution"].as<std::vector<int>>();
+  img_width_ = img_size[0];
+  img_height_ = img_size[1];
+}
+
+ObjectTracking::~ObjectTracking()
+{
   if (filter_ptr_ != nullptr) {
     delete filter_ptr_;
   }
