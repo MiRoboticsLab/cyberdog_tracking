@@ -31,7 +31,7 @@
 #include "rcutils/error_handling.h"
 
 const int kBoundaryTh = 25;
-const std::string kCailbrateParam = "/SDCARD/calibrate_result/params_intrinsic.yaml";
+const std::string kCailbrateParam = "/params/camera/calibration/params_intrinsic.yaml";
 
 namespace cyberdog_tracking
 {
@@ -179,7 +179,7 @@ float CalInterval(const BuiltinTimeT & stamp1, const BuiltinTimeT & stamp2)
 int FindNearest(const std::vector<StampedImage> & img_buffer, const StdHeaderT & header)
 {
   int position = -1;
-  float min_interval = 0.1f;
+  float min_interval = 0.2f;
   for (size_t i = 0; i < img_buffer.size(); ++i) {
     float interval = CalInterval(img_buffer[i].header.stamp, header.stamp);
     if (interval < min_interval) {
