@@ -73,7 +73,6 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<GeometryPoseStampedT>::SharedPtr pose_pub_;
   rclcpp_lifecycle::LifecyclePublisher<TrackingStatusT>::SharedPtr status_pub_;
 
-  SensorCameraInfoT camera_info_;
   BuiltinTimeT last_stamp_;
 
   DistanceFilter * filter_ptr_;
