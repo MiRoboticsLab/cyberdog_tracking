@@ -17,6 +17,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(cyberdog_common REQUIRED)
 find_package(protocol REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 find_package(yaml-cpp REQUIRED)
@@ -47,6 +48,7 @@ ament_target_dependencies(cyberdog_tracking
   cv_bridge
   tf2_ros
   rclcpp_lifecycle
+  cyberdog_common
   protocol
   OpenCV
 )

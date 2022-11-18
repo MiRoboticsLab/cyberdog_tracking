@@ -51,8 +51,8 @@ private:
   void CreateSub();
   void CreatePub();
 
-  void ProcessDepth(const SensorImageT::SharedPtr msg, rclcpp::Logger logger);
-  void ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger);
+  void ProcessDepth(const SensorImageT::SharedPtr msg);
+  void ProcessBody(const PersonT::SharedPtr msg);
 
   void HandlerThread();
 

@@ -30,6 +30,8 @@
 #include "tf2/LinearMath/Transform.h"
 #include "rcutils/error_handling.h"
 
+#include "cyberdog_common/cyberdog_log.hpp"
+
 const int kBoundaryTh = 25;
 const std::string kCailbrateParam = "/params/camera/calibration/params_intrinsic.yaml";
 
@@ -42,12 +44,13 @@ ObjectTracking::ObjectTracking()
   is_activate_(false)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+  LOGGER_MAIN_INSTANCE("cyberdog_tracking");
   this->declare_parameter("ai_intrinsic", "./config/params_intrinsic.yaml");
 }
 
 ReturnResult ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Configuring tracking. ");
+  INFO("Configuring tracking. ");
   Initialize();
   LoadCameraParam();
   return ReturnResult::SUCCESS;
@@ -55,7 +58,7 @@ ReturnResult ObjectTracking::on_configure(const rclcpp_lifecycle::State & /*stat
 
 ReturnResult ObjectTracking::on_activate(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Activating tracking. ");
+  INFO("Activating tracking. ");
   is_activate_ = true;
   // Create process thread
   handler_thread_ = std::make_shared<std::thread>(&ObjectTracking::HandlerThread, this);
@@ -66,7 +69,7 @@ ReturnResult ObjectTracking::on_activate(const rclcpp_lifecycle::State & /*state
 
 ReturnResult ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Deactivating tracking. ");
+  INFO("Deactivating tracking. ");
   is_activate_ = false;
   WakeThread();
   if (handler_thread_->joinable()) {
@@ -79,7 +82,7 @@ ReturnResult ObjectTracking::on_deactivate(const rclcpp_lifecycle::State & /*sta
 
 ReturnResult ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Cleaning up tracking. ");
+  INFO("Cleaning up tracking. ");
   handler_thread_.reset();
   pose_pub_.reset();
   status_pub_.reset();
@@ -91,7 +94,7 @@ ReturnResult ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*
 
 ReturnResult ObjectTracking::on_shutdown(const rclcpp_lifecycle::State & /*state*/)
 {
-  RCLCPP_INFO(get_logger(), "Shutting down tracking. ");
+  INFO("Shutting down tracking. ");
   return ReturnResult::SUCCESS;
 }
 
@@ -109,7 +112,7 @@ void ObjectTracking::CreateObject()
   ai_param_path_ += "/params_intrinsic.yaml";
 
   // Create object
-  RCLCPP_INFO(get_logger(), "Create object.");
+  INFO("Create object.");
   filter_ptr_ = new DistanceFilter();
 }
 
@@ -119,16 +122,16 @@ void ObjectTracking::CreateSub()
   rclcpp::SensorDataQoS sub_qos;
   sub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   auto body_callback = [this](const PersonT::SharedPtr msg) {
-      ProcessBody(msg, get_logger());
+      ProcessBody(msg);
     };
-  RCLCPP_INFO(get_logger(), "Subscribing to body detection topic. ");
+  INFO("Subscribing to body detection topic. ");
   body_sub_ = create_subscription<PersonT>("person", sub_qos, body_callback);
 
   // Subscribe depth image to process
   auto depth_callback = [this](const SensorImageT::SharedPtr msg) {
-      ProcessDepth(msg, get_logger());
+      ProcessDepth(msg);
     };
-  RCLCPP_INFO(get_logger(), "Subscribing to depth image topic. ");
+  INFO("Subscribing to depth image topic. ");
   depth_sub_ = create_subscription<SensorImageT>(
     "camera/aligned_depth_to_extcolor/image_raw",
     10, depth_callback);
@@ -143,16 +146,14 @@ void ObjectTracking::CreatePub()
   status_pub_ = create_publisher<TrackingStatusT>("tracking_status", pub_qos);
 }
 
-void ObjectTracking::ProcessDepth(
-  const SensorImageT::SharedPtr msg,
-  rclcpp::Logger logger)
+void ObjectTracking::ProcessDepth(const SensorImageT::SharedPtr msg)
 {
   if (!is_activate_) {
     return;
   }
 
-  RCLCPP_INFO(
-    logger, "Received depth image, ts: %.9d.%.9d", msg->header.stamp.sec,
+  INFO(
+    "Received depth image, ts: %.9d.%.9d", msg->header.stamp.sec,
     msg->header.stamp.nanosec);
 
   cv_bridge::CvImagePtr depth_ptr = cv_bridge::toCvCopy(
@@ -207,16 +208,16 @@ sensor_msgs::msg::RegionOfInterest Convert2ROS(const cv::Rect & rect)
   return roi;
 }
 
-void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger logger)
+void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg)
 {
   if (!is_activate_) {
     return;
   }
 
-  RCLCPP_INFO(
-    logger, "Received detection result, ts %.9d.%.9d", msg->header.stamp.sec,
-    msg->header.stamp.nanosec);
-  RCLCPP_INFO(logger, "Received body num %d", msg->body_info.count);
+  INFO(
+    "Received detection result, ts %.9d.%.9d",
+    msg->header.stamp.sec, msg->header.stamp.nanosec);
+  INFO("Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
   if (0 != msg->track_res.roi.width && 0 != msg->track_res.roi.height) {
@@ -226,7 +227,7 @@ void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg, rclcpp::Logger lo
     std::unique_lock<std::mutex> lk(handler_.mtx);
     handler_.vecFrame.clear();
     handler_.vecFrame.push_back(tracked);
-    RCLCPP_INFO(get_logger(), "Tracking completed, activate cloud handler to cal pose. ");
+    INFO("Tracking completed, activate cloud handler to cal pose. ");
     handler_.cond.notify_one();
   }
 }
@@ -238,7 +239,7 @@ void ObjectTracking::HandlerThread()
     {
       std::unique_lock<std::mutex> lk(handler_.mtx);
       handler_.cond.wait(lk, [this] {return !handler_.vecFrame.empty();});
-      RCLCPP_INFO(get_logger(), "Cloud handler thread is active. ");
+      INFO("Cloud handler thread is active. ");
       bodies = handler_.vecFrame[0];
       handler_.vecFrame.clear();
     }
@@ -288,7 +289,7 @@ void ObjectTracking::PubStatus(const uint8_t & status)
 
 void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked)
 {
-  RCLCPP_INFO(get_logger(), "To find depth and get pose according to stamped bbox. ");
+  INFO("To find depth and get pose according to stamped bbox. ");
 
   // Get body position
   GeometryPoseStampedT pose_pub;
@@ -312,7 +313,7 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
   pose.pose.position = Dis2Position(distance, ai_intrinsics_, body_center);
   pose.pose.orientation.w = 1.0;
   if (0.0 != distance) {
-    RCLCPP_INFO(get_logger(), "Get pose success, correct kf. ");
+    INFO("Get pose success, correct kf. ");
     cv::Point3f posePost = filter_ptr_->Correct(Convert2CV(pose.pose.position));
     pose_pub.pose = Convert2ROS(posePost);
   }
@@ -321,19 +322,19 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
   if (filter_ptr_->initialized_ && unfound_count_ < 10) {
     pose_pub_->publish(pose_pub);
     last_stamp_ = pose_pub.header.stamp;
-    RCLCPP_INFO(
-      get_logger(), "===Pose pub: %.5f, %.5f, %.5f",
+    INFO(
+      "Pose pub: %.5f, %.5f, %.5f",
       pose_pub.pose.position.x,
       pose_pub.pose.position.y,
       pose_pub.pose.position.z);
 
     double dis = sqrt(pow(pose_pub.pose.position.x, 2) + pow(pose_pub.pose.position.y, 2));
-    RCLCPP_INFO(get_logger(), "Straight line distance from person to dog: %f", dis);
+    INFO("Straight line distance from person to dog: %f", dis);
     if (dis > 3.0) {
-      RCLCPP_INFO(get_logger(), "Status OBJECT_FAR.");
+      INFO("Status OBJECT_FAR.");
       PubStatus(TrackingStatusT::OBJECT_FAR);
     } else if (dis < 0.8) {
-      RCLCPP_INFO(get_logger(), "Status OBJECT_NEAR.");
+      INFO("Status OBJECT_NEAR.");
       PubStatus(TrackingStatusT::OBJECT_NEAR);
     }
     std::cout << "###posepub: " << pose_pub.pose.position.x << std::endl;
@@ -351,12 +352,12 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
     int position = FindNearest(vec_stamped_depth_, header);
     if (position >= 0) {
       depth_image = vec_stamped_depth_[position].image.clone();
-      RCLCPP_INFO(
-        get_logger(), "===Find depth image ts:  %.9d.%.9d",
+      INFO(
+        "Find depth image ts:  %.9d.%.9d",
         vec_stamped_depth_[position].header.stamp.sec,
         vec_stamped_depth_[position].header.stamp.nanosec);
     } else {
-      RCLCPP_ERROR(get_logger(), "Cannot find depth image, cannot calculate pose. ");
+      ERROR("Cannot find depth image, cannot calculate pose. ");
     }
   }
 
@@ -365,12 +366,12 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
   cv::Mat ai_depth = depth_image.clone();
   if (!depth_image.empty()) {
     if (tracked.x > kBoundaryTh && tracked.x + tracked.width < (img_width_ - kBoundaryTh)) {
-      RCLCPP_INFO(get_logger(), "Get distance according to cloud point. ");
+      INFO("Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
       double time = (static_cast<double>(cv::getTickCount()) - start) / cv::getTickFrequency();
-      RCLCPP_DEBUG(get_logger(), "Cloud handler cost: %f ms", time * 1000);
+      DEBUG("Cloud handler cost: %f ms", time * 1000);
     } else {
-      RCLCPP_INFO(get_logger(), "Status OBJECT_EDGE.");
+      INFO("Status OBJECT_EDGE.");
       PubStatus(TrackingStatusT::OBJECT_EDGE);
     }
 
@@ -420,7 +421,7 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
       sum_count += it->second;
     }
     // std::cout << std::endl;
-    RCLCPP_INFO(get_logger(), "===sum_count: %d", sum_count);
+    INFO("===sum_count: %d", sum_count);
 
     int dis_sum = 0;
     int dis_count = 0;
@@ -448,7 +449,7 @@ float ObjectTracking::GetDistance(const cv::Mat & image, const cv::Rect2d & body
         last_value = it->first;
       }
     } else {
-      RCLCPP_ERROR(get_logger(), "Cloud point < 100 . ");
+      ERROR("Cloud point < 100 . ");
     }
   }
 
@@ -471,13 +472,13 @@ void ObjectTracking::LoadCameraParam()
     param = YAML::LoadFile(kCailbrateParam);
     ai_intrinsics_ = param["cam3"]["intrinsics"].as<std::vector<float>>();
     if (ai_intrinsics_.size() != 4) {
-      RCLCPP_ERROR(get_logger(), "Non-pinhole model, use default param. ");
+      ERROR("Non-pinhole model, use default param. ");
       param = YAML::LoadFile(ai_param_path_);
       ai_intrinsics_.clear();
       ai_intrinsics_ = param["cam3"]["intrinsics"].as<std::vector<float>>();
     }
   } catch (...) {
-    RCLCPP_ERROR(get_logger(), "Load param fail, use default param. ");
+    ERROR("Load param fail, use default param. ");
     param = YAML::LoadFile(ai_param_path_);
     ai_intrinsics_ = param["cam3"]["intrinsics"].as<std::vector<float>>();
   }
