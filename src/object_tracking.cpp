@@ -134,7 +134,7 @@ void ObjectTracking::CreateSub()
   INFO("Subscribing to depth image topic. ");
   depth_sub_ = create_subscription<SensorImageT>(
     "camera/aligned_depth_to_extcolor/image_raw",
-    10, depth_callback);
+    sub_qos, depth_callback);
 }
 
 void ObjectTracking::CreatePub()
