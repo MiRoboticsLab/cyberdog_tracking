@@ -15,9 +15,11 @@
 #include <memory>
 
 #include "cyberdog_tracking/object_tracking.hpp"
+#include "cyberdog_common/cyberdog_log.hpp"
 
 int main(int argc, char * argv[])
 {
+  LOGGER_MAIN_INSTANCE("cyberdog_tracking");
   rclcpp::init(argc, argv);
   auto node = std::make_shared<cyberdog_tracking::ObjectTracking>();
   rclcpp::executors::MultiThreadedExecutor exec_;

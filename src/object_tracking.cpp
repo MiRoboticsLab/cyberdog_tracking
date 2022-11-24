@@ -44,7 +44,6 @@ ObjectTracking::ObjectTracking()
   is_activate_(false)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
-  LOGGER_MAIN_INSTANCE("cyberdog_tracking");
   this->declare_parameter("ai_intrinsic", "./config/params_intrinsic.yaml");
 }
 
