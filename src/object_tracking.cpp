@@ -33,6 +33,7 @@
 #include "cyberdog_common/cyberdog_log.hpp"
 
 const int kBoundaryTh = 25;
+const int kPredictFrame = 5;
 const std::string kCailbrateParam = "/params/camera/calibration/params_intrinsic.yaml";
 
 namespace cyberdog_tracking
@@ -44,7 +45,6 @@ ObjectTracking::ObjectTracking()
   is_activate_(false)
 {
   setvbuf(stdout, NULL, _IONBF, BUFSIZ);
-  LOGGER_MAIN_INSTANCE("cyberdog_tracking");
   this->declare_parameter("ai_intrinsic", "./config/params_intrinsic.yaml");
 }
 
@@ -299,7 +299,7 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
     tracked.x + tracked.width / 2.0,
     tracked.y + tracked.height / 2.0);
 
-  if (filter_ptr_->initialized_ && unfound_count_ < 10) {
+  if (filter_ptr_->initialized_ && unfound_count_ < kPredictFrame) {
     // Get prediction with pre frame
     float delta = CalInterval(pose_pub.header.stamp, last_stamp_);
     cv::Point3f pose_predict = filter_ptr_->Predict(delta);
@@ -319,7 +319,7 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
   }
 
   // Publish position only valid
-  if (filter_ptr_->initialized_ && unfound_count_ < 10) {
+  if (filter_ptr_->initialized_ && unfound_count_ < kPredictFrame) {
     pose_pub_->publish(pose_pub);
     last_stamp_ = pose_pub.header.stamp;
     INFO(
@@ -388,7 +388,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
     std::cout << "###discal: null " << std::endl;
   }
 
-  if (unfound_count_ >= 10) {
+  if (unfound_count_ >= kPredictFrame) {
     filter_ptr_->initialized_ = false;
   }
 
