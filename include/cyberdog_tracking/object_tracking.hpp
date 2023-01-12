@@ -67,7 +67,6 @@ private:
 
 private:
   rclcpp::Subscription<SensorImageT>::SharedPtr depth_sub_;
-  rclcpp::Subscription<SensorCameraInfoT>::SharedPtr info_sub_;
   rclcpp::Subscription<PersonT>::SharedPtr body_sub_;
 
   rclcpp_lifecycle::LifecyclePublisher<GeometryPoseStampedT>::SharedPtr pose_pub_;
