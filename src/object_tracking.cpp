@@ -87,7 +87,6 @@ ReturnResult ObjectTracking::on_cleanup(const rclcpp_lifecycle::State & /*state*
   pose_pub_.reset();
   status_pub_.reset();
   depth_sub_.reset();
-  info_sub_.reset();
   body_sub_.reset();
   return ReturnResult::SUCCESS;
 }
