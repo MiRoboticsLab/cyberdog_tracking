@@ -322,10 +322,10 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
     pose_pub_->publish(pose_pub);
     last_stamp_ = pose_pub.header.stamp;
     INFO(
-      "Pose pub: %.5f, %.5f, %.5f",
-      pose_pub.pose.position.x,
-      pose_pub.pose.position.y,
-      pose_pub.pose.position.z);
+      "Pose pub: %.5f, %.5f, %.5f, timestamp: %.9f.%.9f",
+      pose_pub.pose.position.x, pose_pub.pose.position.y,
+      pose_pub.pose.position.z, pose_pub.header.stamp.sec,
+      pose_pub.header.stamp.nanosec);
 
     double dis = sqrt(pow(pose_pub.pose.position.x, 2) + pow(pose_pub.pose.position.y, 2));
     INFO("Straight line distance from person to dog: %f", dis);
