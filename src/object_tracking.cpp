@@ -118,22 +118,30 @@ void ObjectTracking::CreateObject()
 void ObjectTracking::CreateSub()
 {
   // Subscribe body detection topic to process
+  auto body_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions body_options;
+  body_options.callback_group = body_callback_group;
+
   rclcpp::SensorDataQoS sub_qos;
   sub_qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
   auto body_callback = [this](const PersonT::SharedPtr msg) {
       ProcessBody(msg);
     };
   INFO("Subscribing to body detection topic. ");
-  body_sub_ = create_subscription<PersonT>("person", sub_qos, body_callback);
+  body_sub_ = create_subscription<PersonT>("person", sub_qos, body_callback, body_options);
 
   // Subscribe depth image to process
+  auto depth_callback_group = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions depth_options;
+  depth_options.callback_group = depth_callback_group;
+
   auto depth_callback = [this](const SensorImageT::SharedPtr msg) {
       ProcessDepth(msg);
     };
   INFO("Subscribing to depth image topic. ");
   depth_sub_ = create_subscription<SensorImageT>(
     "camera/aligned_depth_to_extcolor/image_raw",
-    sub_qos, depth_callback);
+    sub_qos, depth_callback, depth_options);
 }
 
 void ObjectTracking::CreatePub()
@@ -219,7 +227,8 @@ void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg)
   INFO("Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
-  if (0 != msg->track_res.roi.width && 0 != msg->track_res.roi.height) {
+  if (0 != msg->body_info.count) {
+    INFO("Process to get pose.");
     cv::Rect bbox = Convert2CV(msg->track_res.roi);
     tracked.header = msg->header;
     tracked.vecInfo.push_back(bbox);
@@ -322,10 +331,10 @@ void ObjectTracking::PubPose(const StdHeaderT & header, const cv::Rect & tracked
     pose_pub_->publish(pose_pub);
     last_stamp_ = pose_pub.header.stamp;
     INFO(
-      "Pose pub: %.5f, %.5f, %.5f",
-      pose_pub.pose.position.x,
-      pose_pub.pose.position.y,
-      pose_pub.pose.position.z);
+      "Pose pub: %.5f, %.5f, %.5f, timestamp: %.9d.%.9d",
+      pose_pub.pose.position.x, pose_pub.pose.position.y,
+      pose_pub.pose.position.z, pose_pub.header.stamp.sec,
+      pose_pub.header.stamp.nanosec);
 
     double dis = sqrt(pow(pose_pub.pose.position.x, 2) + pow(pose_pub.pose.position.y, 2));
     INFO("Straight line distance from person to dog: %f", dis);
@@ -363,7 +372,7 @@ float ObjectTracking::GetDistance(const StdHeaderT & header, const cv::Rect & tr
   // Align depth to ai and get distance
   float distance = 0.f;
   cv::Mat ai_depth = depth_image.clone();
-  if (!depth_image.empty()) {
+  if (!depth_image.empty() && 0 != tracked.width && 0 != tracked.height) {
     if (tracked.x > kBoundaryTh && tracked.x + tracked.width < (img_width_ - kBoundaryTh)) {
       INFO("Get distance according to cloud point. ");
       double start = static_cast<double>(cv::getTickCount());
