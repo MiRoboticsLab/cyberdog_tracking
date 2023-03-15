@@ -34,7 +34,7 @@
 
 const int kBoundaryTh = 25;
 const int kPredictFrame = 5;
-const std::string kCailbrateParam = "/params/camera/calibration/params_intrinsic.yaml";
+const char kCailbrateParam[] = "/params/camera/calibration/params_intrinsic.yaml";
 
 namespace cyberdog_tracking
 {
