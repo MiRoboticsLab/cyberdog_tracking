@@ -227,7 +227,9 @@ void ObjectTracking::ProcessBody(const PersonT::SharedPtr msg)
   INFO("Received body num %d", msg->body_info.count);
 
   StampedBbox tracked;
-  if (0 != msg->body_info.count) {
+  if ((0 != msg->track_res.roi.width && 0 != msg->track_res.roi.height) ||
+    (0 != msg->body_info.count))
+  {
     INFO("Process to get pose.");
     cv::Rect bbox = Convert2CV(msg->track_res.roi);
     tracked.header = msg->header;
